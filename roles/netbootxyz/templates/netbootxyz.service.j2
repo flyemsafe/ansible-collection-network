@@ -1,0 +1,48 @@
+# netbootxyz.service
+# Created by Ansible - rhdc.network.netbootxyz role
+# netboot.xyz PXE Boot Server
+
+[Unit]
+Description=netboot.xyz PXE Boot Server
+Documentation=https://netboot.xyz/docs/
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+{% if netbootxyz_auto_restart %}
+Restart={{ netbootxyz_restart_policy }}
+{% endif %}
+TimeoutStartSec={{ netbootxyz_timeout_start }}
+TimeoutStopSec={{ netbootxyz_timeout_stop }}
+
+{% if netbootxyz_pull_image %}
+ExecStartPre=/usr/bin/podman pull {{ netbootxyz_image }}
+{% endif %}
+{% if netbootxyz_force_remove_existing %}
+ExecStartPre=-/usr/bin/podman rm -f netbootxyz
+{% endif %}
+
+ExecStart=/usr/bin/podman run \
+  --rm \
+  --name netbootxyz \
+{% if netbootxyz_use_host_networking %}
+  --network host \
+{% endif %}
+  -v {{ netbootxyz_config_dir }}:/config:{{ netbootxyz_selinux_context }} \
+  -v {{ netbootxyz_assets_dir }}:/assets:{{ netbootxyz_selinux_context }} \
+  -e TZ={{ netbootxyz_timezone }} \
+  -e PORT_TFTP={{ netbootxyz_tftp_port }} \
+  -e PORT_HTTP={{ netbootxyz_http_port }} \
+  -e PORT_WEB={{ netbootxyz_web_port }} \
+{% for key, value in netbootxyz_extra_env_vars.items() %}
+  -e {{ key }}="{{ value }}" \
+{% endfor %}
+{% for volume in netbootxyz_extra_volumes %}
+  -v {{ volume }} \
+{% endfor %}
+  {{ netbootxyz_image }}
+
+ExecStop=/usr/bin/podman stop -t 10 netbootxyz
+
+[Install]
+WantedBy=multi-user.target

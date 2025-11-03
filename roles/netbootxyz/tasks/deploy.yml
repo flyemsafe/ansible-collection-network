@@ -1,0 +1,94 @@
+---
+##################################################
+# netboot.xyz Role - Container Deployment Tasks
+##################################################
+# Deploys the netboot.xyz container with systemd
+##################################################
+
+- name: Ensure /opt/podman is mounted
+  ansible.builtin.command: mountpoint -q /opt/podman
+  register: mountpoint_check
+  failed_when: false
+  changed_when: false
+
+- name: Fail if /opt/podman is not mounted
+  ansible.builtin.fail:
+    msg: "/opt/podman is not mounted. Please ensure ZFS filesystem is mounted."
+  when: mountpoint_check.rc != 0
+
+- name: Create netboot.xyz storage directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: root
+    group: root
+  loop:
+    - "{{ netbootxyz_config_dir }}"
+    - "{{ netbootxyz_assets_dir }}"
+    - "{{ netbootxyz_config_dir }}/menus"  # For menu files
+    - "{{ netbootxyz_config_dir }}/menus/local"  # For local custom menus
+    - "{{ netbootxyz_config_dir }}/menus/custom"  # For custom menu entry point
+
+- name: Pull netboot.xyz container image
+  containers.podman.podman_image:
+    name: "{{ netbootxyz_image }}"
+    state: present
+  when: netbootxyz_pull_image
+
+- name: Create systemd unit for netboot.xyz
+  ansible.builtin.template:
+    src: netbootxyz.service.j2
+    dest: "{{ netbootxyz_service_file }}"
+    mode: '0644'
+    owner: root
+    group: root
+  register: systemd_unit
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: systemd_unit.changed
+
+- name: Enable and start netboot.xyz service
+  ansible.builtin.systemd:
+    name: "{{ netbootxyz_service_name }}"
+    enabled: "{{ netbootxyz_service_enabled }}"
+    state: "{{ 'started' if netbootxyz_service_started else 'stopped' }}"
+
+- name: Wait for netboot.xyz to be ready
+  ansible.builtin.wait_for:
+    host: localhost
+    port: "{{ netbootxyz_web_port }}"
+    delay: "{{ netbootxyz_wait_delay }}"
+    timeout: "{{ netbootxyz_wait_timeout }}"
+  when:
+    - netbootxyz_wait_for_ready
+    - netbootxyz_service_started
+
+- name: Verify netboot.xyz service is running
+  ansible.builtin.systemd:
+    name: "{{ netbootxyz_service_name }}"
+  register: service_status
+
+- name: Display deployment status
+  ansible.builtin.debug:
+    msg: |
+      ==========================================
+      ✅ netboot.xyz Container Deployed
+      ==========================================
+
+      Service: {{ netbootxyz_service_name }}
+      Status: {{ service_status.status.ActiveState }}
+
+      Storage Locations:
+        - Config: {{ netbootxyz_config_dir }}
+        - Assets: {{ netbootxyz_assets_dir }}
+        - Menus: {{ netbootxyz_config_dir }}/menus
+
+      Access Points:
+        - Web UI: http://{{ ansible_fqdn }}:{{ netbootxyz_web_port }}
+        - HTTP Boot: http://{{ ansible_fqdn }}:{{ netbootxyz_http_port }}/boot.ipxe
+        - TFTP Boot: {{ ansible_fqdn }}:{{ netbootxyz_tftp_port }}
+
+      ==========================================

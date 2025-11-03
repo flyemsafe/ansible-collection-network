@@ -1,0 +1,79 @@
+#!ipxe
+
+##################################################
+# Rodhouse Datacenter - ARM / Raspberry Pi Boot Menu
+# Created by Ansible - rhdc.network.netbootxyz role
+##################################################
+
+:rhdc_arm_menu
+menu ARM / Raspberry Pi Boot Options
+item --gap Operating Systems:
+item fedora_arm       Fedora ARM64 Server
+item raspios          Raspberry Pi OS
+item haos             Home Assistant OS
+item --gap Utilities:
+item ubuntu_arm       Ubuntu Server ARM64
+item --gap
+item return           Return to main menu
+choose target && goto ${target}
+
+:fedora_arm
+# Chain to Fedora ARM menu
+chain live-fedora.ipxe
+
+:raspios
+echo ==========================================
+echo Raspberry Pi OS
+echo ==========================================
+echo Raspberry Pi OS - Network boot coming soon
+echo
+echo For now, use:
+echo   https://www.raspberrypi.com/software/
+echo
+echo To install:
+echo   1. Download Raspberry Pi Imager
+echo   2. Select Raspberry Pi OS
+echo   3. Flash to SD card
+echo   4. Boot and configure
+prompt Press any key to return to menu...
+goto rhdc_arm_menu
+
+:haos
+echo ==========================================
+echo Home Assistant OS Installation
+echo ==========================================
+echo 1. Download latest HAOS image for Raspberry Pi
+echo    URL: https://www.home-assistant.io/installation/
+echo
+echo 2. Flash to SD card using:
+echo    - balenaEtcher (https://www.balena.io/etcher/)
+echo    - Raspberry Pi Imager
+echo
+echo 3. Boot Raspberry Pi and access:
+echo    http://homeassistant.local:8123
+echo
+echo Network boot for HAOS is not yet supported
+echo ==========================================
+prompt Press any key to return to menu...
+goto rhdc_arm_menu
+
+:ubuntu_arm
+# Chain to Ubuntu ARM menu if available
+chain linux-arm.ipxe || goto ubuntu_arm_error
+
+:ubuntu_arm_error
+echo ==========================================
+echo Ubuntu ARM Installation
+echo ==========================================
+echo Ubuntu ARM installation menu not found
+echo
+echo To install Ubuntu ARM manually:
+echo   1. Download Ubuntu Server ARM from ubuntu.com
+echo   2. Flash to SD card or USB drive
+echo   3. Boot and configure
+echo ==========================================
+prompt Press any key to return to menu...
+goto rhdc_arm_menu
+
+:return
+chain menu.ipxe

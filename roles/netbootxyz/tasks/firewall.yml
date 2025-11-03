@@ -1,0 +1,39 @@
+---
+##################################################
+# netboot.xyz Role - Firewall Configuration Tasks
+##################################################
+# Configures firewalld to allow PXE boot traffic
+##################################################
+
+- name: Configure firewall for netboot.xyz
+  ansible.posix.firewalld:
+    port: "{{ item }}"
+    zone: "{{ netbootxyz_firewall_zone }}"
+    permanent: true
+    state: enabled
+    immediate: true
+  loop: "{{ netbootxyz_firewall_ports }}"
+  register: firewall_config
+
+- name: Display firewall configuration status
+  ansible.builtin.debug:
+    msg: |
+      ==========================================
+      🔥 Firewall Configuration Complete
+      ==========================================
+
+      Zone: {{ netbootxyz_firewall_zone }}
+
+      Ports Configured:
+      {% for port in netbootxyz_firewall_ports %}
+        - {{ port }}
+      {% endfor %}
+
+      {% set fw_changed = firewall_config.results | selectattr('changed') | list | length %}
+      {% if fw_changed > 0 %}
+      ✅ Configured {{ fw_changed }} new firewall rule(s)
+      {% else %}
+      ℹ️  All firewall rules already configured
+      {% endif %}
+
+      ==========================================

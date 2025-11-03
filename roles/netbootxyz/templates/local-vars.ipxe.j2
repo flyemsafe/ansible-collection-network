@@ -1,0 +1,25 @@
+#!ipxe
+
+##################################################
+# Local Variable Overrides
+# Created by Ansible - rhdc.network.netbootxyz role
+##################################################
+# This file customizes the branding and behavior
+# of the netboot.xyz boot menu
+##################################################
+
+# Custom site branding
+set site_name {{ netbootxyz_site_name }}
+
+# Boot timeout (milliseconds)
+# How long to wait at boot menu before proceeding with default action
+set boot_timeout {{ netbootxyz_boot_timeout }}
+
+{% if netbootxyz_enable_custom_menus %}
+# Enable RHDC custom menu
+# This adds a "Custom URL Menu" entry to the main menu
+set custom_url file:///config/menus/custom
+{% endif %}
+
+# Additional custom variables can be added here
+# See netboot.xyz documentation for available options

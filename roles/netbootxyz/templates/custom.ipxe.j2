@@ -1,0 +1,37 @@
+#!ipxe
+
+##################################################
+# {{ netbootxyz_site_name }} - Custom Menu
+# Created by Ansible - rhdc.network.netbootxyz role
+##################################################
+
+:custom_menu
+menu {{ netbootxyz_site_name }} - Custom Boot Options
+item --gap RHDC Custom Menus:
+{% if netbootxyz_enable_openshift_menu %}
+item rhdc_openshift   OpenShift / Fedora CoreOS Deployments
+{% endif %}
+{% if netbootxyz_enable_arm_menu %}
+item rhdc_arm         ARM / Raspberry Pi / Home Assistant
+{% endif %}
+item --gap
+item return           Return to main menu
+choose target && goto ${target}
+
+{% if netbootxyz_enable_openshift_menu %}
+:rhdc_openshift
+chain ../local/rhdc-openshift.ipxe || goto error
+{% endif %}
+
+{% if netbootxyz_enable_arm_menu %}
+:rhdc_arm
+chain ../local/rhdc-arm.ipxe || goto error
+{% endif %}
+
+:return
+chain menu.ipxe
+
+:error
+echo Error loading custom menu!
+prompt Press any key to return to menu...
+goto custom_menu

@@ -1,0 +1,21 @@
+---
+##################################################
+# netboot.xyz Role - Main Tasks Entry Point
+##################################################
+# This file orchestrates the deployment and configuration
+# of the netboot.xyz PXE boot server
+##################################################
+
+- name: Deploy netboot.xyz container
+  ansible.builtin.include_tasks: deploy.yml
+  tags: ['netbootxyz', 'deploy']
+
+- name: Configure firewall
+  ansible.builtin.include_tasks: firewall.yml
+  when: netbootxyz_configure_firewall
+  tags: ['netbootxyz', 'firewall']
+
+- name: Customize netboot.xyz menus
+  ansible.builtin.include_tasks: customize.yml
+  when: netbootxyz_enable_custom_menus
+  tags: ['netbootxyz', 'customize']

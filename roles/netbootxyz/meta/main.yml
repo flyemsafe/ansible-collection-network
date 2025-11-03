@@ -1,0 +1,38 @@
+---
+##################################################
+# netboot.xyz Role - Metadata
+##################################################
+
+galaxy_info:
+  role_name: netbootxyz
+  namespace: rhdc.network
+  author: Rodhouse Datacenter Infrastructure Team
+  description: Deploy and customize netboot.xyz PXE boot server with RHDC-specific menus and branding
+
+  license: MIT
+
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: Fedora
+      versions:
+        - 38
+        - 39
+        - 40
+    - name: EL
+      versions:
+        - "9"
+
+  galaxy_tags:
+    - networking
+    - pxe
+    - boot
+    - infrastructure
+    - netbootxyz
+    - ipxe
+    - containers
+    - podman
+
+dependencies: []
+  # No role dependencies
+  # We use podman modules and systemd directly

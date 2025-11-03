@@ -1,0 +1,116 @@
+---
+##################################################
+# netboot.xyz Role - Customization Tasks
+##################################################
+# Creates custom iPXE menu files for RHDC-specific boot options
+##################################################
+
+- name: Create local-vars.ipxe for branding customization
+  ansible.builtin.template:
+    src: local-vars.ipxe.j2
+    dest: "{{ netbootxyz_config_dir }}/menus/local-vars.ipxe"
+    mode: '0644'
+    owner: root
+    group: root
+  register: branding_config
+
+- name: Create custom menu entry point
+  ansible.builtin.template:
+    src: custom.ipxe.j2
+    dest: "{{ netbootxyz_config_dir }}/menus/custom/custom.ipxe"
+    mode: '0644'
+    owner: root
+    group: root
+  when: netbootxyz_enable_custom_menus
+  register: custom_entry_point
+
+- name: Create OpenShift/CoreOS custom menu
+  ansible.builtin.template:
+    src: rhdc-openshift.ipxe.j2
+    dest: "{{ netbootxyz_config_dir }}/menus/local/rhdc-openshift.ipxe"
+    mode: '0644'
+    owner: root
+    group: root
+  when: netbootxyz_enable_openshift_menu
+  register: openshift_menu
+
+- name: Create ARM/Raspberry Pi/Home Assistant custom menu
+  ansible.builtin.template:
+    src: rhdc-arm.ipxe.j2
+    dest: "{{ netbootxyz_config_dir }}/menus/local/rhdc-arm.ipxe"
+    mode: '0644'
+    owner: root
+    group: root
+  when: netbootxyz_enable_arm_menu
+  register: arm_menu
+
+- name: Create simplified main menu (optional)
+  ansible.builtin.template:
+    src: custom-main.ipxe.j2
+    dest: "{{ netbootxyz_config_dir }}/menus/local/custom-main.ipxe"
+    mode: '0644'
+    owner: root
+    group: root
+  when: netbootxyz_enable_simplified_main
+  register: simplified_menu
+
+- name: Set fact for whether any customization changed
+  ansible.builtin.set_fact:
+    customization_changed: >-
+      {{ branding_config.changed or
+         (custom_entry_point.changed | default(false)) or
+         (openshift_menu.changed | default(false)) or
+         (arm_menu.changed | default(false)) or
+         (simplified_menu.changed | default(false)) }}
+
+- name: Restart netboot.xyz service to apply customization
+  ansible.builtin.systemd:
+    name: "{{ netbootxyz_service_name }}"
+    state: restarted
+  when: customization_changed
+
+- name: Wait for service to be ready after restart
+  ansible.builtin.wait_for:
+    host: localhost
+    port: "{{ netbootxyz_web_port }}"
+    delay: "{{ netbootxyz_wait_delay }}"
+    timeout: "{{ netbootxyz_wait_timeout }}"
+  when:
+    - customization_changed
+    - netbootxyz_wait_for_ready
+
+- name: Display customization status
+  ansible.builtin.debug:
+    msg: |
+      ==========================================
+      🎨 netboot.xyz Customization Complete
+      ==========================================
+
+      Branding:
+        - Site Name: {{ netbootxyz_site_name }}
+        - Boot Timeout: {{ netbootxyz_boot_timeout }}ms
+
+      Custom Menus Deployed:
+        - Branding (local-vars.ipxe): ✅
+      {% if netbootxyz_enable_openshift_menu %}
+        - OpenShift/CoreOS Menu: ✅
+      {% endif %}
+      {% if netbootxyz_enable_arm_menu %}
+        - ARM/Raspberry Pi Menu: ✅
+      {% endif %}
+      {% if netbootxyz_enable_simplified_main %}
+        - Simplified Main Menu: ✅
+      {% endif %}
+
+      Menu Files Location: {{ netbootxyz_config_dir }}/menus/
+
+      {% if customization_changed %}
+      ✅ Service restarted to apply changes
+      {% else %}
+      ℹ️  No changes detected, service not restarted
+      {% endif %}
+
+      Access custom menus via Web UI:
+        http://{{ ansible_fqdn }}:{{ netbootxyz_web_port }}/menus
+
+      ==========================================
