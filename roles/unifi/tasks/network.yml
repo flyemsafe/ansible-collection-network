@@ -1,0 +1,33 @@
+---
+# ==============================================================================
+# UniFi Network/VLAN Management
+# ==============================================================================
+
+- name: Get current network configuration
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_networks }}"
+    method: GET
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_current_networks
+
+- name: Display available networks
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "Available Networks/VLANs:"
+      - "========================================="
+      - "{% for network in unifi_current_networks.json.data %}
+        {{ network.name }}:
+          - ID: {{ network._id }}
+          - VLAN: {{ network.vlan | default('None') }}
+          - Purpose: {{ network.purpose | default('N/A') }}
+          - IP Subnet: {{ network.ip_subnet | default('N/A') }}
+        {% endfor %}"
+  when: not ansible_check_mode
+
+- name: Save network configurations
+  ansible.builtin.set_fact:
+    unifi_networks: "{{ unifi_current_networks.json.data }}"

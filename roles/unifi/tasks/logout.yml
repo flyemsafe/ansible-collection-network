@@ -1,0 +1,28 @@
+---
+# ==============================================================================
+# UniFi Controller Logout
+# ==============================================================================
+
+- name: Logout from UniFi Controller
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_logout }}"
+    method: POST
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_logout_result
+  ignore_errors: true
+
+- name: Clear authentication variables
+  ansible.builtin.set_fact:
+    unifi_auth_cookie: ""
+    unifi_auth_time: ""
+  no_log: true
+
+- name: Display logout status
+  ansible.builtin.debug:
+    msg: "✅ Logged out from UniFi Controller"
+  when:
+    - unifi_logout_result is success
+    - not ansible_check_mode

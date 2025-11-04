@@ -1,0 +1,36 @@
+---
+# ==============================================================================
+# rhdc.network.unifi Role - Main Tasks
+# ==============================================================================
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - unifi_controller_url is defined
+      - unifi_controller_username is defined
+      - unifi_controller_password is defined
+    fail_msg: "UniFi controller URL, username, and password must be provided"
+    quiet: true
+
+- name: Authenticate to UniFi Controller
+  ansible.builtin.include_tasks: auth.yml
+  tags: ['unifi', 'auth']
+
+- name: Query UniFi infrastructure
+  ansible.builtin.include_tasks: query.yml
+  when: unifi_action == "query"
+  tags: ['unifi', 'query']
+
+- name: Configure switch port VLAN
+  ansible.builtin.include_tasks: switch_port.yml
+  when: unifi_action == "switch_port"
+  tags: ['unifi', 'switch_port']
+
+- name: Manage networks/VLANs
+  ansible.builtin.include_tasks: network.yml
+  when: unifi_action == "network"
+  tags: ['unifi', 'network']
+
+- name: Logout from UniFi Controller
+  ansible.builtin.include_tasks: logout.yml
+  tags: ['unifi', 'logout']

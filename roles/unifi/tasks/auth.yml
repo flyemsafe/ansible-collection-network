@@ -1,0 +1,49 @@
+---
+# ==============================================================================
+# UniFi Controller Authentication
+# ==============================================================================
+
+- name: Login to UniFi Controller
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_login }}"
+    method: POST
+    body:
+      username: "{{ unifi_controller_username }}"
+      password: "{{ unifi_controller_password }}"
+    body_format: json
+    validate_certs: "{{ unifi_validate_certs }}"
+    status_code: [200]
+    timeout: "{{ unifi_login_timeout }}"
+  register: unifi_login_result
+  no_log: true
+  retries: "{{ unifi_retry_count }}"
+  delay: "{{ unifi_retry_delay }}"
+  until: unifi_login_result is success
+
+- name: Store authentication cookie
+  ansible.builtin.set_fact:
+    unifi_auth_cookie: "{{ unifi_login_result.set_cookie }}"
+    unifi_auth_time: "{{ ansible_date_time.epoch }}"
+  no_log: true
+
+- name: Get UniFi sites
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_sites }}"
+    method: GET
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_sites_result
+
+- name: Set active site
+  ansible.builtin.set_fact:
+    unifi_active_site: "{{ (unifi_sites_result.json.data | selectattr('desc', 'equalto', 'Rodhouse') | first).name | default(unifi_site) }}"
+
+- name: Display authentication status
+  ansible.builtin.debug:
+    msg:
+      - "✅ Authenticated to UniFi Controller"
+      - "Site: {{ unifi_active_site }}"
+      - "URL: {{ unifi_controller_url }}"
+  when: not ansible_check_mode

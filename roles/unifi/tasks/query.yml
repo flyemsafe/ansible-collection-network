@@ -1,0 +1,71 @@
+---
+# ==============================================================================
+# UniFi Infrastructure Query
+# ==============================================================================
+
+- name: Get network configuration
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_networks }}"
+    method: GET
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_networks_result
+
+- name: Get wireless network configuration
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_wireless }}"
+    method: GET
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_wireless_result
+
+- name: Get all devices
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_devices }}"
+    method: GET
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_devices_result
+
+- name: Filter switches and access points
+  ansible.builtin.set_fact:
+    unifi_switches: "{{ unifi_devices_result.json.data | selectattr('type', 'equalto', 'usw') | list }}"
+    unifi_access_points: "{{ unifi_devices_result.json.data | selectattr('type', 'equalto', 'uap') | list }}"
+
+- name: Get port profiles
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}{{ unifi_api_portconf }}"
+    method: GET
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_portconf_result
+
+- name: Display query results
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "UniFi Infrastructure Query Results"
+      - "========================================="
+      - "Networks/VLANs: {{ unifi_networks_result.json.data | length }}"
+      - "Wireless Networks: {{ unifi_wireless_result.json.data | length }}"
+      - "Switches: {{ unifi_switches | length }}"
+      - "Access Points: {{ unifi_access_points | length }}"
+      - "Port Profiles: {{ unifi_portconf_result.json.data | length }}"
+  when: not ansible_check_mode
+
+- name: Save query results
+  ansible.builtin.set_fact:
+    unifi_query_results:
+      networks: "{{ unifi_networks_result.json.data }}"
+      wireless: "{{ unifi_wireless_result.json.data }}"
+      switches: "{{ unifi_switches }}"
+      access_points: "{{ unifi_access_points }}"
+      port_profiles: "{{ unifi_portconf_result.json.data }}"

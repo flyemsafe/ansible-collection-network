@@ -1,0 +1,37 @@
+---
+# ==============================================================================
+# rhdc.network.unifi Role - Default Variables
+# ==============================================================================
+
+# UniFi Controller Configuration
+unifi_controller_url: "https://{{ network.unifi.controller }}:8443"
+unifi_controller_username: "{{ network.unifi.username }}"
+unifi_controller_password: "{{ network.unifi.password }}"
+unifi_site: "default"
+unifi_validate_certs: false
+
+# Authentication
+unifi_login_timeout: 30
+unifi_cookie_expiry: 3600  # 1 hour
+
+# API Endpoints
+unifi_api_login: "/api/login"
+unifi_api_logout: "/api/logout"
+unifi_api_sites: "/api/self/sites"
+unifi_api_devices: "/api/s/{{ unifi_site }}/stat/device"
+unifi_api_networks: "/api/s/{{ unifi_site }}/rest/networkconf"
+unifi_api_wireless: "/api/s/{{ unifi_site }}/rest/wlanconf"
+unifi_api_portconf: "/api/s/{{ unifi_site }}/rest/portconf"
+unifi_api_device: "/api/s/{{ unifi_site }}/rest/device"
+
+# Switch Port Configuration
+unifi_switch_port_action: "query"  # query, update
+unifi_switch_mac: ""  # MAC address of switch
+unifi_switch_device_id: ""  # Device ID from UniFi
+unifi_switch_port_idx: ""  # Port number (1-based)
+unifi_switch_port_vlan: ""  # VLAN ID to assign
+unifi_switch_port_network_id: ""  # Network conf ID to assign
+
+# Retry Logic
+unifi_retry_count: 3
+unifi_retry_delay: 5
