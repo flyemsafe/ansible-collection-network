@@ -1,0 +1,69 @@
+---
+# ==============================================================================
+# MikroTik RouterOS Configuration - Default Variables
+# ==============================================================================
+
+# Device connection settings
+mikrotik_hostname: "172.23.11.3"
+mikrotik_username: "admin"
+mikrotik_password: "{{ vault_mikrotik_password }}"
+mikrotik_port: 22
+
+# Device identity
+mikrotik_identity: "mikrotik-crs309"
+mikrotik_timezone: "America/New_York"
+
+# Management VLAN configuration
+mikrotik_mgmt_vlan_id: 11
+mikrotik_mgmt_vlan_name: "vlan11-mgmt"
+mikrotik_mgmt_ip: "172.23.11.3/24"
+mikrotik_mgmt_gateway: "172.23.11.1"
+
+# Storage VLAN configuration
+mikrotik_storage_vlan_id: 13
+mikrotik_storage_vlan_name: "vlan13-storage"
+
+# Trunk port configuration (10G SFP+ uplink to UniFi)
+mikrotik_trunk_enabled: true
+mikrotik_trunk_interface: "sfp-sfpplus8"  # Port 8
+mikrotik_trunk_vlans:
+  - 11  # Management
+  - 13  # Storage
+
+# Storage ports (10G SFP+ to servers)
+mikrotik_storage_ports:
+  - name: "sfp-sfpplus1"
+    description: "kvmzfs01-storage"
+  - name: "sfp-sfpplus2"
+    description: "kvmzfs02-storage"
+  - name: "sfp-sfpplus3"
+    description: "kvmzfs03-storage"
+  - name: "sfp-sfpplus4"
+    description: "kvmzfs07-storage"
+  - name: "sfp-sfpplus5"
+    description: "akili-storage"
+
+# Bridge configuration
+mikrotik_trunk_bridge: "bridge-trunk"
+mikrotik_storage_bridge: "bridge-storage"
+
+# Enable hardware offloading
+mikrotik_hw_offload: true
+
+# Jumbo frames for storage
+mikrotik_mtu: 9000
+
+# SNMP configuration
+mikrotik_snmp_enabled: false
+mikrotik_snmp_community: "{{ vault_snmp_community | default('public') }}"
+mikrotik_snmp_contact: "admin@rodhouse.net"
+mikrotik_snmp_location: "Office Closet Rack"
+
+# NTP configuration
+mikrotik_ntp_enabled: true
+mikrotik_ntp_servers:
+  - "172.23.11.1"  # pfSense
+
+# Backup configuration
+mikrotik_backup_enabled: false
+mikrotik_backup_path: "/tmp/mikrotik-backup.rsc"

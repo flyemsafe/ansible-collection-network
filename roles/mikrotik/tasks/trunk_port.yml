@@ -1,0 +1,41 @@
+---
+# ==============================================================================
+# MikroTik 10G SFP+ Trunk Port Configuration
+# ==============================================================================
+#
+# Configures trunk port (sfp-sfpplus8) to UniFi Port 25 with VLANs 11 and 13
+#
+# ==============================================================================
+
+- name: Add trunk port to trunk bridge
+  community.routeros.command:
+    commands:
+      - /interface bridge port add bridge={{ mikrotik_trunk_bridge }} interface={{ mikrotik_trunk_interface }} pvid={{ mikrotik_mgmt_vlan_id }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Set trunk port description
+  community.routeros.command:
+    commands:
+      - /interface set {{ mikrotik_trunk_interface }} comment="10G Trunk to UniFi Port 25 (VLANs {{ mikrotik_trunk_vlans | join(',') }})"
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Display trunk configuration
+  ansible.builtin.debug:
+    msg:
+      - "Trunk Port Configuration:"
+      - "  Interface: {{ mikrotik_trunk_interface }}"
+      - "  Bridge: {{ mikrotik_trunk_bridge }}"
+      - "  VLANs: {{ mikrotik_trunk_vlans | join(', ') }}"
+      - "  Connected to: UniFi USW-Pro-24 Port 25"

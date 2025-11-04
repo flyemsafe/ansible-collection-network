@@ -1,0 +1,89 @@
+---
+# ==============================================================================
+# MikroTik RouterOS Configuration - Main Tasks
+# ==============================================================================
+#
+# This role configures MikroTik CRS309-1G-8S+IN switch with:
+# - 10G SFP+ trunk to UniFi (Port 8)
+# - VLAN 11 (Management) and VLAN 13 (Storage)
+# - Hardware bridge with VLAN filtering
+# - Storage ports for server connectivity
+#
+# Requirements:
+# - RouterOS (not SwOS) - SSH access required
+# - community.routeros collection installed
+#
+# ==============================================================================
+
+- name: Verify RouterOS is accessible via SSH
+  ansible.builtin.wait_for:
+    host: "{{ mikrotik_hostname }}"
+    port: "{{ mikrotik_port }}"
+    timeout: 10
+  delegate_to: localhost
+
+- name: Display configuration summary
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "MikroTik RouterOS Configuration"
+      - "========================================="
+      - "Device: {{ mikrotik_identity }}"
+      - "Management IP: {{ mikrotik_mgmt_ip }}"
+      - "Trunk Interface: {{ mikrotik_trunk_interface }}"
+      - "Trunk VLANs: {{ mikrotik_trunk_vlans | join(', ') }}"
+      - "Storage Ports: {{ mikrotik_storage_ports | length }}"
+      - "========================================="
+
+- name: Include system setup tasks
+  ansible.builtin.include_tasks: system_setup.yml
+  tags:
+    - mikrotik
+    - mikrotik_system
+
+- name: Include bridge and VLAN configuration tasks
+  ansible.builtin.include_tasks: bridge_vlan.yml
+  tags:
+    - mikrotik
+    - mikrotik_bridge
+    - mikrotik_vlan
+
+- name: Include trunk port configuration tasks
+  ansible.builtin.include_tasks: trunk_port.yml
+  when: mikrotik_trunk_enabled | bool
+  tags:
+    - mikrotik
+    - mikrotik_trunk
+
+- name: Include storage port configuration tasks
+  ansible.builtin.include_tasks: storage_ports.yml
+  tags:
+    - mikrotik
+    - mikrotik_storage
+
+- name: Include monitoring configuration tasks
+  ansible.builtin.include_tasks: monitoring.yml
+  tags:
+    - mikrotik
+    - mikrotik_monitoring
+
+- name: Display completion message
+  ansible.builtin.debug:
+    msg:
+      - ""
+      - "========================================="
+      - "MikroTik Configuration Complete"
+      - "========================================="
+      - ""
+      - "Access Methods:"
+      - "  SSH: ssh {{ mikrotik_username }}@{{ mikrotik_hostname }}"
+      - "  Web: http://{{ mikrotik_hostname }}"
+      - "  WinBox: {{ mikrotik_hostname }}"
+      - ""
+      - "Verify Configuration:"
+      - "  /interface print"
+      - "  /interface bridge print"
+      - "  /interface vlan print"
+      - "  /ip address print"
+      - ""
+      - "========================================="

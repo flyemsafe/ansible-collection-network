@@ -1,0 +1,89 @@
+---
+# ==============================================================================
+# MikroTik Bridge and VLAN Configuration
+# ==============================================================================
+
+- name: Create trunk bridge
+  community.routeros.command:
+    commands:
+      - /interface bridge add name={{ mikrotik_trunk_bridge }} vlan-filtering=yes protocol-mode=none
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Create storage bridge
+  community.routeros.command:
+    commands:
+      - /interface bridge add name={{ mikrotik_storage_bridge }} vlan-filtering=no
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Create management VLAN interface
+  community.routeros.command:
+    commands:
+      - /interface vlan add interface={{ mikrotik_trunk_bridge }} name={{ mikrotik_mgmt_vlan_name }} vlan-id={{ mikrotik_mgmt_vlan_id }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Create storage VLAN interface
+  community.routeros.command:
+    commands:
+      - /interface vlan add interface={{ mikrotik_storage_bridge }} name={{ mikrotik_storage_vlan_name }} vlan-id={{ mikrotik_storage_vlan_id }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Configure management IP address
+  community.routeros.command:
+    commands:
+      - /ip address add address={{ mikrotik_mgmt_ip }} interface={{ mikrotik_mgmt_vlan_name }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Configure default gateway
+  community.routeros.command:
+    commands:
+      - /ip route add dst-address=0.0.0.0/0 gateway={{ mikrotik_mgmt_gateway }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Configure bridge VLAN filtering for trunk
+  community.routeros.command:
+    commands:
+      - /interface bridge vlan add bridge={{ mikrotik_trunk_bridge }} tagged={{ mikrotik_trunk_bridge }},{{ mikrotik_trunk_interface }} vlan-ids={{ mikrotik_mgmt_vlan_id }}
+      - /interface bridge vlan add bridge={{ mikrotik_trunk_bridge }} tagged={{ mikrotik_trunk_bridge }},{{ mikrotik_trunk_interface }} vlan-ids={{ mikrotik_storage_vlan_id }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"

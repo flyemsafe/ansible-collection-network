@@ -1,0 +1,45 @@
+---
+# ==============================================================================
+# MikroTik Storage Ports Configuration
+# ==============================================================================
+#
+# Configures 10G SFP+ ports for server storage connectivity on VLAN 13
+#
+# ==============================================================================
+
+- name: Add storage ports to storage bridge
+  community.routeros.command:
+    commands: |
+      {% for port in mikrotik_storage_ports %}
+      /interface bridge port add bridge={{ mikrotik_storage_bridge }} interface={{ port.name }}
+      {% endfor %}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Set storage port descriptions
+  community.routeros.command:
+    commands: |
+      {% for port in mikrotik_storage_ports %}
+      /interface set {{ port.name }} comment="{{ port.description }} - VLAN {{ mikrotik_storage_vlan_id }}"
+      {% endfor %}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Display storage ports configuration
+  ansible.builtin.debug:
+    msg:
+      - "Storage Ports Configuration:"
+      - "  Bridge: {{ mikrotik_storage_bridge }}"
+      - "  VLAN: {{ mikrotik_storage_vlan_id }} ({{ mikrotik_storage_vlan_name }})"
+      - "  Ports:"
+      - "{% for port in mikrotik_storage_ports %}    - {{ port.name }}: {{ port.description }}{% endfor %}"

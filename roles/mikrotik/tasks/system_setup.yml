@@ -1,0 +1,54 @@
+---
+# ==============================================================================
+# MikroTik System Setup Tasks
+# ==============================================================================
+
+- name: Set system identity
+  community.routeros.command:
+    commands:
+      - /system identity set name={{ mikrotik_identity }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Configure NTP client
+  community.routeros.command:
+    commands:
+      - /system ntp client set enabled=yes
+      - /system ntp client set server-dns-names={{ mikrotik_ntp_servers | join(',') }}
+  when: mikrotik_ntp_enabled | bool
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Set timezone
+  community.routeros.command:
+    commands:
+      - /system clock set time-zone-name={{ mikrotik_timezone }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Enable jumbo frames on all interfaces
+  community.routeros.command:
+    commands:
+      - /interface ethernet set [ find ] l2mtu={{ mikrotik_mtu }} mtu={{ mikrotik_mtu }}
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"

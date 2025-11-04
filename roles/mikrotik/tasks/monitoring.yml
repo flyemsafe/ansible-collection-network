@@ -1,0 +1,44 @@
+---
+# ==============================================================================
+# MikroTik Monitoring Configuration
+# ==============================================================================
+#
+# Optional monitoring features:
+# - SNMP for Grafana/Prometheus integration
+# - Logging configuration
+#
+# ==============================================================================
+
+- name: Configure SNMP
+  community.routeros.command:
+    commands:
+      - /snmp set enabled=yes contact="{{ mikrotik_snmp_contact }}" location="{{ mikrotik_snmp_location }}"
+      - /snmp community set [ find default=yes ] name={{ mikrotik_snmp_community }}
+  when: mikrotik_snmp_enabled | bool
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Export configuration backup
+  community.routeros.command:
+    commands:
+      - /export file=ansible-backup
+  when: mikrotik_backup_enabled | bool
+  delegate_to: localhost
+  vars:
+    ansible_network_os: community.routeros.routeros
+    ansible_connection: ansible.netcommon.network_cli
+    ansible_user: "{{ mikrotik_username }}"
+    ansible_password: "{{ mikrotik_password }}"
+    ansible_host: "{{ mikrotik_hostname }}"
+
+- name: Display monitoring status
+  ansible.builtin.debug:
+    msg:
+      - "Monitoring Configuration:"
+      - "  SNMP: {{ 'Enabled' if mikrotik_snmp_enabled else 'Disabled' }}"
+      - "  Backup: {{ 'Enabled' if mikrotik_backup_enabled else 'Disabled' }}"
