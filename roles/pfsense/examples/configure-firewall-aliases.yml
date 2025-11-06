@@ -1,0 +1,131 @@
+---
+# ==============================================================================
+# Example: Configure Firewall Aliases on pfSense
+# ==============================================================================
+#
+# This example demonstrates how to use the rhdc.network.pfsense role to
+# create and manage firewall aliases for use in firewall rules.
+#
+# This specifically addresses issue #205 by creating missing aliases that were
+# referenced in firewall rules but didn't exist:
+#   - RESTRICTED_NETWORKS
+#   - LOCAL_SUBNETS
+#   - ADMIN_PORTS
+#   - LABNetworks
+#
+# Features Demonstrated:
+#   - Network aliases (CIDR blocks)
+#   - Port aliases (service ports)
+#   - Multi-address aliases
+#   - Alias descriptions
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts configure-firewall-aliases.yml
+#
+# ==============================================================================
+
+- name: Configure pfSense Firewall Aliases
+  hosts: pfsense
+  gather_facts: false
+
+  vars:
+    # Enable firewall management
+    pfsense_manage_firewall: true
+
+    # Firewall aliases to create
+    pfsense_firewall_aliases:
+      # Network Aliases
+      - name: "RFC1918_NETWORKS"
+        type: "network"
+        addresses:
+          - "10.0.0.0/8"
+          - "172.16.0.0/12"
+          - "192.168.0.0/16"
+        descr: "All RFC1918 private networks"
+
+      - name: "INTERNAL_NETWORKS"
+        type: "network"
+        addresses:
+          - "172.23.10.0/24"  # VL10_BMC
+          - "172.23.11.0/24"  # VL11_MGMT
+          - "172.23.12.0/24"  # VL12_SERVER
+          - "172.23.14.0/24"  # VL14_OFFICE
+        descr: "All internal RHDC networks"
+
+      - name: "RESTRICTED_NETWORKS"
+        type: "network"
+        addresses:
+          - "172.23.10.0/24"  # VL10_BMC (IPMI/BMC - highly restricted)
+          - "172.23.12.0/24"  # VL12_SERVER (Production servers)
+        descr: "Networks that should not be accessible from guest/IoT VLANs"
+
+      - name: "LOCAL_SUBNETS"
+        type: "network"
+        addresses:
+          - "172.23.0.0/16"  # All RHDC VLANs
+        descr: "All local subnets in the datacenter"
+
+      - name: "LABNetworks"
+        type: "network"
+        addresses:
+          - "172.23.60.0/24"  # VL60_LAB (OpenShift demo environment)
+          - "172.23.11.0/24"  # VL11_MGMT (for lab access to mgmt)
+        descr: "Lab and demo networks for colleague access"
+
+      # Port Aliases
+      - name: "ADMIN_PORTS"
+        type: "port"
+        addresses:
+          - "22"    # SSH
+          - "80"    # HTTP
+          - "443"   # HTTPS
+          - "8006"  # Proxmox
+          - "9090"  # Cockpit
+        descr: "Administrative service ports (pfSense, servers)"
+
+      - name: "WEB_PORTS"
+        type: "port"
+        addresses:
+          - "80"    # HTTP
+          - "443"   # HTTPS
+          - "8080"  # Alt HTTP
+          - "8443"  # Alt HTTPS
+        descr: "Standard web service ports"
+
+  roles:
+    - rhdc.network.pfsense
+
+  post_tasks:
+    - name: Display alias configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "Firewall Aliases Configured"
+          - "========================================="
+          - ""
+          - "Network Aliases:"
+          - "  - RFC1918_NETWORKS: All private networks"
+          - "  - INTERNAL_NETWORKS: RHDC internal VLANs"
+          - "  - RESTRICTED_NETWORKS: Production/BMC (guest-blocked)"
+          - "  - LOCAL_SUBNETS: All 172.23.0.0/16"
+          - "  - LABNetworks: Lab/demo environments"
+          - ""
+          - "Port Aliases:"
+          - "  - ADMIN_PORTS: SSH, HTTP, HTTPS, Proxmox, Cockpit"
+          - "  - WEB_PORTS: HTTP, HTTPS variations"
+          - "========================================="
+          - ""
+          - "These aliases can now be used in firewall rules!"
+          - ""
+          - "Next Steps:"
+          - "  1. Verify aliases in pfSense GUI: Firewall → Aliases"
+          - "  2. Update existing firewall rules to use these aliases"
+          - "  3. Create new rules using aliases for easier management"
+          - ""
+          - "Example firewall rule using aliases:"
+          - "  - Interface: vl50_guest"
+          - "    Action: block"
+          - "    Source: vl50_guest"
+          - "    Destination: RESTRICTED_NETWORKS"
+          - "    Description: Block guest access to restricted networks"
+          - "========================================="

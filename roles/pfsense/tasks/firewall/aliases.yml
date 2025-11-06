@@ -1,0 +1,90 @@
+---
+# Configure Firewall Alias
+#
+# This task creates or updates a firewall alias on pfSense.
+# Aliases are used to group IPs, networks, or ports for use in firewall rules.
+#
+# Variables required (from alias loop variable):
+#   - name:      Alias name (e.g., "INTERNAL_NETWORKS")
+#   - type:      Alias type: "host", "network", "port"
+#   - addresses: List of addresses/ports
+#   - descr:     Description (optional)
+
+- name: Display alias configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring alias: {{ alias.name }}"
+      - "Type: {{ alias.type }}"
+      - "Addresses: {{ alias.addresses | join(', ') }}"
+  when: ansible_verbosity >= 1
+
+# PHP shell method (primary method - API doesn't support aliases yet)
+- name: Configure alias via PHP shell
+  ansible.builtin.raw: |
+    pfSsh.php <<'EOF'
+    require_once("filter.inc");
+    $config = parse_config(true);
+
+    // Initialize aliases array if it doesn't exist
+    if (!isset($config['aliases']['alias'])) {
+        $config['aliases']['alias'] = array();
+    }
+
+    // Prepare address list
+    $addresses = explode(' ', '{{ alias.addresses | join(" ") }}');
+    $address_str = implode(' ', $addresses);
+
+    // Check if alias exists
+    $found = false;
+    $alias_name = '{{ alias.name }}';
+
+    foreach ($config['aliases']['alias'] as $idx => $existing_alias) {
+        if ($existing_alias['name'] == $alias_name) {
+            $found = true;
+            // Update existing alias
+            $config['aliases']['alias'][$idx] = array(
+                'name' => '{{ alias.name }}',
+                'type' => '{{ alias.type }}',
+                'address' => $address_str,
+                'descr' => '{{ alias.descr | default("Configured via Ansible (rhdc.network.pfsense role)") }}',
+                'detail' => '{{ alias.detail | default("Managed by Ansible") }}'
+            );
+            echo "UPDATED: Alias {{ alias.name }}\n";
+            break;
+        }
+    }
+
+    // Add new alias if not found
+    if (!$found) {
+        $new_alias = array(
+            'name' => '{{ alias.name }}',
+            'type' => '{{ alias.type }}',
+            'address' => $address_str,
+            'descr' => '{{ alias.descr | default("Configured via Ansible (rhdc.network.pfsense role)") }}',
+            'detail' => '{{ alias.detail | default("Managed by Ansible") }}'
+        );
+        $config['aliases']['alias'][] = $new_alias;
+        echo "ADDED: Alias {{ alias.name }}\n";
+    }
+
+    // Save configuration
+    write_config("Configured firewall alias {{ alias.name }} via Ansible (rhdc.network.pfsense role)");
+
+    // Reload filter (firewall rules)
+    filter_configure();
+
+    echo "SUCCESS: Alias {{ alias.name }} configured\n";
+    echo "  Type: {{ alias.type }}\n";
+    echo "  Addresses: " . $address_str . "\n";
+    EOF
+  register: _alias_php_result
+  changed_when: "'SUCCESS' in _alias_php_result.stdout"
+
+- name: Display alias configuration result
+  ansible.builtin.debug:
+    msg:
+      - "Alias configuration: {{ 'SUCCESS' if 'SUCCESS' in _alias_php_result.stdout else 'FAILED' }}"
+      - "Alias: {{ alias.name }}"
+      - "Type: {{ alias.type }}"
+      - "Action: {{ 'UPDATED' if 'UPDATED' in _alias_php_result.stdout else 'ADDED' if 'ADDED' in _alias_php_result.stdout else 'CONFIGURED' }}"
+  when: ansible_verbosity >= 0

@@ -64,6 +64,29 @@ pfsense_dhcp_static_mappings:
     descr: "Production Server"
 ```
 
+### Firewall Configuration
+
+#### Aliases
+
+```yaml
+pfsense_firewall_aliases:
+  - name: "INTERNAL_NETWORKS"
+    type: "network"
+    addresses:
+      - "172.23.10.0/24"
+      - "172.23.11.0/24"
+      - "172.23.12.0/24"
+    descr: "All internal networks"
+
+  - name: "ADMIN_PORTS"
+    type: "port"
+    addresses:
+      - "22"
+      - "80"
+      - "443"
+    descr: "Administrative service ports"
+```
+
 ## Dependencies
 
 None.
@@ -139,6 +162,7 @@ The role implements a hybrid approach:
 | HAProxy | ✅ | ✅ | API preferred |
 | DHCP | ❌ | ✅ | PHP only (API planned) |
 | DNS | ❌ | ✅ | PHP only |
+| Firewall Aliases | ❌ | ✅ | PHP only |
 | Firewall Rules | ❌ | ✅ | PHP only |
 
 ### Module Organization
