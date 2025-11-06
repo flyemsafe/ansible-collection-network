@@ -1,0 +1,61 @@
+---
+# Main entry point for pfSense role
+#
+# This role provides a unified interface for managing pfSense via REST API and PHP shell.
+# It automatically prefers API when available and falls back to PHP shell when necessary.
+
+- name: Validate pfSense connection parameters
+  ansible.builtin.assert:
+    that:
+      - pfsense_api_url is defined
+      - pfsense_api_url | length > 0
+      - pfsense_api_key is defined
+      - pfsense_api_key | length > 0
+    fail_msg: "pfSense API URL and API key must be configured"
+    quiet: true
+
+- name: Test pfSense API connectivity
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/system/version"
+    method: GET
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    return_content: true
+    status_code: [200, 401, 404]
+  register: _pfsense_api_test
+  failed_when: false
+  changed_when: false
+
+- name: Set API availability fact
+  ansible.builtin.set_fact:
+    _pfsense_api_available: "{{ _pfsense_api_test.status == 200 }}"
+
+- name: Display connection method
+  ansible.builtin.debug:
+    msg: "pfSense connection method: {{ 'REST API' if _pfsense_api_available else 'PHP Shell (API unavailable)' }}"
+
+# DHCP Management
+- name: Include DHCP management tasks
+  ansible.builtin.include_tasks: dhcp/main.yml
+  when: pfsense_manage_dhcp | bool
+
+# DNS Management
+- name: Include DNS management tasks
+  ansible.builtin.include_tasks: dns/main.yml
+  when: pfsense_manage_dns | bool
+
+# Firewall Management
+- name: Include firewall management tasks
+  ansible.builtin.include_tasks: firewall/main.yml
+  when: pfsense_manage_firewall | bool
+
+# HAProxy Management
+- name: Include HAProxy management tasks
+  ansible.builtin.include_tasks: haproxy/main.yml
+  when: pfsense_manage_haproxy | bool
+
+# Backup Management
+- name: Include backup management tasks
+  ansible.builtin.include_tasks: backup/main.yml
+  when: pfsense_manage_backup | bool

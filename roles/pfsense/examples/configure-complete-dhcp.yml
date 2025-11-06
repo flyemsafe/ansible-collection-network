@@ -1,0 +1,120 @@
+---
+# ==============================================================================
+# Example: Complete DHCP Configuration on pfSense
+# ==============================================================================
+#
+# This example demonstrates how to use the rhdc.network.pfsense role to
+# configure both PXE boot settings and static DHCP mappings together.
+#
+# This is useful for setting up a complete network environment where you want:
+#   1. PXE boot enabled for network installations
+#   2. Static IP reservations for servers
+#
+# Features Demonstrated:
+#   - Combined PXE boot + static mapping configuration
+#   - Multi-interface setup
+#   - Real-world datacenter use case
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts configure-complete-dhcp.yml
+#
+# ==============================================================================
+
+- name: Configure Complete DHCP Setup on pfSense
+  hosts: pfsense
+  gather_facts: false
+
+  vars:
+    # Enable DHCP management
+    pfsense_manage_dhcp: true
+
+    # PXE boot configuration for LAN interface
+    # This allows network booting for bare metal installations
+    pfsense_dhcp_pxe_config:
+      interface: "lan"
+      next_server: "172.23.11.5"  # tuareg - PXE/netboot.xyz server
+      use_http_boot: true
+      http_boot_url: "http://172.23.11.5/boot.ipxe"
+      filename_bios: "boot.ipxe"
+      filename_uefi: "http://172.23.11.5/boot.ipxe"
+
+    # Static DHCP mappings for infrastructure servers
+    pfsense_dhcp_static_mappings:
+      # Infrastructure server: tuareg (PXE server)
+      - interface: "lan"
+        mac: "52:54:00:12:34:56"
+        ipaddr: "172.23.11.5"
+        hostname: "tuareg"
+        domain: "lab.rodhouse.net"
+        descr: "tuareg - PXE/netboot.xyz server"
+
+      # KVM host: kvmzfs02 primary interface
+      - interface: "opt11"
+        mac: "3c:ec:ef:ba:22:c1"
+        ipaddr: "172.23.12.42"
+        hostname: "kvmzfs02"
+        domain: "open.lab.rodhouse.net"
+        descr: "kvmzfs02 - KVM host primary 2.5G interface"
+
+      # KVM host: kvmzfs02 BMC interface
+      - interface: "opt12"
+        mac: "3c:ec:ef:33:63:ce"
+        ipaddr: "172.23.10.42"
+        hostname: "kvmzfs02-ipmi"
+        domain: "lab.rodhouse.net"
+        descr: "kvmzfs02 - IPMI/BMC management interface"
+
+  roles:
+    - rhdc.network.pfsense
+
+  post_tasks:
+    - name: Display complete configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "Complete DHCP Configuration Applied"
+          - "========================================="
+          - ""
+          - "PXE Boot Configuration:"
+          - "  Interface: lan (VL11_LAN)"
+          - "  PXE Server: 172.23.11.5 (tuareg)"
+          - "  Boot Method: HTTP iPXE"
+          - "  Boot URL: http://172.23.11.5/boot.ipxe"
+          - ""
+          - "Static DHCP Mappings:"
+          - "  1. tuareg.lab.rodhouse.net"
+          - "     Interface: lan (VL11_LAN)"
+          - "     IP: 172.23.11.5"
+          - "     Role: PXE/netboot.xyz server"
+          - ""
+          - "  2. kvmzfs02.open.lab.rodhouse.net"
+          - "     Interface: opt11 (VL12_SERVER)"
+          - "     IP: 172.23.12.42"
+          - "     Role: KVM host primary interface"
+          - ""
+          - "  3. kvmzfs02-ipmi.lab.rodhouse.net"
+          - "     Interface: opt12 (VL10_BMC)"
+          - "     IP: 172.23.10.42"
+          - "     Role: IPMI/BMC management"
+          - "========================================="
+          - ""
+          - "Network Architecture:"
+          - "  VL11_LAN (lan):        172.23.11.0/24 - User LAN + PXE boot"
+          - "  VL12_SERVER (opt11):   172.23.12.0/24 - Server network"
+          - "  VL10_BMC (opt12):      172.23.10.0/24 - IPMI/BMC network"
+          - ""
+          - "Next Steps:"
+          - "  1. Verify PXE boot works:"
+          - "     - Power on a test system on LAN"
+          - "     - Configure BIOS for network boot"
+          - "     - Should boot to netboot.xyz menu"
+          - ""
+          - "  2. Verify static mappings:"
+          - "     - Reboot servers to obtain DHCP leases"
+          - "     - Test: ping 172.23.11.5 (tuareg)"
+          - "     - Test: ping 172.23.12.42 (kvmzfs02)"
+          - "     - Test: ping 172.23.10.42 (kvmzfs02-ipmi)"
+          - ""
+          - "  3. Add corresponding DNS records"
+          - "  4. Monitor tuareg PXE logs: journalctl -u nginx -f"
+          - "========================================="

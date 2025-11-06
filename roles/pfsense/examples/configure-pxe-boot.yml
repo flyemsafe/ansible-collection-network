@@ -1,0 +1,56 @@
+---
+# ==============================================================================
+# Example: Configure PXE Boot on pfSense LAN Interface
+# ==============================================================================
+#
+# This example demonstrates how to use the rhdc.network.pfsense role to
+# configure PXE boot settings on a DHCP interface.
+#
+# Features Demonstrated:
+#   - HTTP-based iPXE boot configuration
+#   - Modern UEFI and BIOS boot support
+#   - Automatic API detection with PHP shell fallback
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts configure-pxe-boot.yml
+#
+# ==============================================================================
+
+- name: Configure pfSense DHCP PXE Boot
+  hosts: pfsense
+  gather_facts: false
+
+  vars:
+    # Enable DHCP management
+    pfsense_manage_dhcp: true
+
+    # PXE boot configuration
+    pfsense_dhcp_pxe_config:
+      interface: "lan"
+      next_server: "172.23.11.5"  # PXE server (tuareg)
+      use_http_boot: true
+      http_boot_url: "http://172.23.11.5/boot.ipxe"
+      filename_bios: "boot.ipxe"
+      filename_uefi: "http://172.23.11.5/boot.ipxe"
+
+  roles:
+    - rhdc.network.pfsense
+
+  post_tasks:
+    - name: Display PXE boot summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "PXE Boot Configuration Complete"
+          - "========================================="
+          - "Interface: lan"
+          - "PXE Server: 172.23.11.5 (tuareg)"
+          - "Boot Method: HTTP iPXE"
+          - "Boot URL: http://172.23.11.5/boot.ipxe"
+          - "========================================="
+          - ""
+          - "Next Steps:"
+          - "  1. Power on a test system connected to LAN"
+          - "  2. Configure BIOS/UEFI for network boot"
+          - "  3. System should boot from netboot.xyz"
+          - "  4. Monitor tuareg logs: journalctl -u nginx -f"

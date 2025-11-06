@@ -1,0 +1,142 @@
+---
+# Configure DHCP Static Mapping
+#
+# This task creates or updates a DHCP static mapping (reservation) on pfSense.
+# Currently uses PHP shell as pfSense REST API doesn't support DHCP configuration yet.
+#
+# Variables required (from mapping loop variable):
+#   - interface:  DHCP interface (e.g., "lan", "opt11")
+#   - mac:        MAC address (e.g., "00:11:22:33:44:55")
+#   - ipaddr:     IP address to reserve (e.g., "192.168.1.100")
+#   - hostname:   Hostname for the device (e.g., "server01")
+#   - domain:     Domain name (optional, e.g., "lab.local")
+#   - descr:      Description (optional, e.g., "Production Server")
+
+- name: Display static mapping configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring static DHCP mapping on interface: {{ mapping.interface }}"
+      - "MAC: {{ mapping.mac }}"
+      - "IP: {{ mapping.ipaddr }}"
+      - "Hostname: {{ mapping.hostname }}{{ ('.' + mapping.domain) if mapping.domain is defined else '' }}"
+  when: ansible_verbosity >= 1
+
+- name: Check if DHCP API endpoint exists
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/dhcpd/static_mapping"
+    method: GET
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    status_code: [200, 404]
+  register: _dhcp_staticmap_api_check
+  failed_when: false
+  changed_when: false
+  when: _pfsense_api_available | default(false)
+
+# API method (not currently supported by pfSense REST API)
+- name: Configure static mapping via REST API
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/dhcpd/static_mapping"
+    method: POST
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    body_format: json
+    body:
+      interface: "{{ mapping.interface }}"
+      mac: "{{ mapping.mac }}"
+      ipaddr: "{{ mapping.ipaddr }}"
+      hostname: "{{ mapping.hostname }}"
+      domain: "{{ mapping.domain | default('') }}"
+      descr: "{{ mapping.descr | default('Configured via Ansible') }}"
+    status_code: [200, 201, 409]
+  register: _staticmap_api_result
+  when:
+    - _pfsense_api_available | default(false)
+    - _dhcp_staticmap_api_check.status == 200
+  changed_when: _staticmap_api_result.status in [200, 201]
+  failed_when: false
+
+# PHP shell method (fallback and current default)
+- name: Configure static mapping via PHP shell
+  ansible.builtin.raw: |
+    pfSsh.php <<'EOF'
+    require_once("services.inc");
+    $config = parse_config(true);
+
+    // Validate interface exists
+    if (!isset($config['dhcpd']['{{ mapping.interface }}'])) {
+        echo "ERROR: DHCP not configured on interface {{ mapping.interface }}\n";
+        exit(1);
+    }
+
+    // Initialize staticmap array if it doesn't exist
+    if (!is_array($config['dhcpd']['{{ mapping.interface }}']['staticmap'])) {
+        $config['dhcpd']['{{ mapping.interface }}']['staticmap'] = array();
+    }
+
+    // Check if mapping already exists (by MAC address)
+    $found = false;
+    $mac_addr = '{{ mapping.mac }}';
+
+    foreach ($config['dhcpd']['{{ mapping.interface }}']['staticmap'] as $idx => $map) {
+        if (isset($map['mac']) && $map['mac'] == $mac_addr) {
+            $found = true;
+            // Update existing mapping
+            $config['dhcpd']['{{ mapping.interface }}']['staticmap'][$idx] = array(
+                'mac' => '{{ mapping.mac }}',
+                'ipaddr' => '{{ mapping.ipaddr }}',
+                'hostname' => '{{ mapping.hostname }}',
+                {% if mapping.domain is defined and mapping.domain %}
+                'domain' => '{{ mapping.domain }}',
+                {% endif %}
+                'descr' => '{{ mapping.descr | default("Configured via Ansible (rhdc.network.pfsense role)") }}'
+            );
+            echo "UPDATED: Static mapping for {{ mapping.hostname }} ({{ mapping.mac }})\n";
+            break;
+        }
+    }
+
+    // Add new mapping if not found
+    if (!$found) {
+        $new_mapping = array(
+            'mac' => '{{ mapping.mac }}',
+            'ipaddr' => '{{ mapping.ipaddr }}',
+            'hostname' => '{{ mapping.hostname }}',
+            {% if mapping.domain is defined and mapping.domain %}
+            'domain' => '{{ mapping.domain }}',
+            {% endif %}
+            'descr' => '{{ mapping.descr | default("Configured via Ansible (rhdc.network.pfsense role)") }}'
+        );
+        $config['dhcpd']['{{ mapping.interface }}']['staticmap'][] = $new_mapping;
+        echo "ADDED: Static mapping for {{ mapping.hostname }} ({{ mapping.mac }})\n";
+    }
+
+    // Save configuration
+    write_config("Configured DHCP static mapping for {{ mapping.hostname }} on {{ mapping.interface }} via Ansible (rhdc.network.pfsense role)");
+
+    // Reload DHCP service
+    services_dhcpd_configure();
+
+    echo "SUCCESS: Static mapping configured on interface {{ mapping.interface }}\n";
+    echo "  MAC: {{ mapping.mac }}\n";
+    echo "  IP: {{ mapping.ipaddr }}\n";
+    echo "  Hostname: {{ mapping.hostname }}{% if mapping.domain is defined %}.{{ mapping.domain }}{% endif %}\n";
+    EOF
+  register: _staticmap_php_result
+  when: (_staticmap_api_result is skipped) or (_staticmap_api_result is failed)
+  changed_when: "'SUCCESS' in _staticmap_php_result.stdout"
+
+- name: Display static mapping result
+  ansible.builtin.debug:
+    msg:
+      - "Static mapping configuration: {{ 'SUCCESS' if ((_staticmap_api_result is changed) or ('SUCCESS' in _staticmap_php_result.stdout)) else 'FAILED' }}"
+      - "Method used: {{ 'REST API' if (_staticmap_api_result is changed) else 'PHP Shell' }}"
+      - "Interface: {{ mapping.interface }}"
+      - "MAC: {{ mapping.mac }}"
+      - "IP: {{ mapping.ipaddr }}"
+      - "Hostname: {{ mapping.hostname }}{{ ('.' + mapping.domain) if mapping.domain is defined else '' }}"
+      - "Action: {{ 'UPDATED' if 'UPDATED' in _staticmap_php_result.stdout else 'ADDED' if 'ADDED' in _staticmap_php_result.stdout else 'CONFIGURED' }}"
+  when: ansible_verbosity >= 0

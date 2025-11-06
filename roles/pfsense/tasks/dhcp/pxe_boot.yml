@@ -1,0 +1,108 @@
+---
+# Configure DHCP PXE Boot Settings
+#
+# This task configures DHCP server PXE boot options for network booting.
+# Currently uses PHP shell as pfSense REST API doesn't support DHCP configuration yet.
+#
+# Variables required (from pfsense_dhcp_pxe_config):
+#   - interface:      DHCP interface (e.g., "lan", "opt11")
+#   - next_server:    TFTP/PXE server IP
+#   - use_http_boot:  Use HTTP iPXE boot (true) or TFTP (false)
+#   - http_boot_url:  URL for HTTP boot (when use_http_boot is true)
+#   - filename_bios:  Boot filename for BIOS
+#   - filename_uefi:  Boot filename for UEFI
+
+- name: Display PXE boot configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring PXE boot on interface: {{ pfsense_dhcp_pxe_config.interface }}"
+      - "PXE Server: {{ pfsense_dhcp_pxe_config.next_server }}"
+      - "Boot Method: {{ 'HTTP (iPXE)' if pfsense_dhcp_pxe_config.use_http_boot | default(false) else 'TFTP' }}"
+  when: ansible_verbosity >= 1
+
+- name: Check if DHCP API endpoint exists
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/dhcpd"
+    method: GET
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    status_code: [200, 404]
+  register: _dhcp_api_check
+  failed_when: false
+  changed_when: false
+  when: _pfsense_api_available | default(false)
+
+# API method (not currently supported by pfSense REST API)
+- name: Configure PXE boot via REST API
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/dhcpd/{{ pfsense_dhcp_pxe_config.interface }}"
+    method: PUT
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    body_format: json
+    body:
+      next_server: "{{ pfsense_dhcp_pxe_config.next_server }}"
+      filename: "{{ pfsense_dhcp_pxe_config.filename_bios | default('boot.ipxe') }}"
+      filename_efi: "{{ pfsense_dhcp_pxe_config.filename_uefi | default(pfsense_dhcp_pxe_config.http_boot_url | default('netboot.xyz.efi')) }}"
+    status_code: [200, 201]
+  register: _pxe_api_result
+  when:
+    - _pfsense_api_available | default(false)
+    - _dhcp_api_check.status == 200
+  changed_when: _pxe_api_result.status in [200, 201]
+  failed_when: false
+
+# PHP shell method (fallback and current default)
+- name: Configure PXE boot via PHP shell
+  ansible.builtin.raw: |
+    pfSsh.php <<'EOF'
+    require_once("services.inc");
+    $config = parse_config(true);
+
+    // Validate interface exists
+    if (!isset($config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}'])) {
+        echo "ERROR: DHCP not configured on interface {{ pfsense_dhcp_pxe_config.interface }}\n";
+        exit(1);
+    }
+
+    // Configure PXE boot options
+    $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['next-server'] = '{{ pfsense_dhcp_pxe_config.next_server }}';
+
+    {% if pfsense_dhcp_pxe_config.use_http_boot | default(false) %}
+    // HTTP-based iPXE boot (modern approach)
+    $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename'] = '{{ pfsense_dhcp_pxe_config.filename_bios | default("boot.ipxe") }}';
+    $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename-efi'] = '{{ pfsense_dhcp_pxe_config.filename_uefi | default(pfsense_dhcp_pxe_config.http_boot_url) }}';
+    $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename-efi64'] = '{{ pfsense_dhcp_pxe_config.filename_uefi | default(pfsense_dhcp_pxe_config.http_boot_url) }}';
+    {% else %}
+    // TFTP-based boot (traditional approach)
+    $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename'] = '{{ pfsense_dhcp_pxe_config.filename_bios | default("netboot.xyz.kpxe") }}';
+    $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename-efi'] = '{{ pfsense_dhcp_pxe_config.filename_uefi | default("netboot.xyz.efi") }}';
+    $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename-efi64'] = '{{ pfsense_dhcp_pxe_config.filename_uefi | default("netboot.xyz.efi") }}';
+    {% endif %}
+
+    // Save configuration
+    write_config("Configured PXE boot on {{ pfsense_dhcp_pxe_config.interface }} via Ansible (rhdc.network.pfsense role)");
+
+    // Reload DHCP service
+    services_dhcpd_configure();
+
+    echo "SUCCESS: PXE boot configured on interface {{ pfsense_dhcp_pxe_config.interface }}\n";
+    echo "  Next-server: {{ pfsense_dhcp_pxe_config.next_server }}\n";
+    echo "  Filename (BIOS): " . $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename'] . "\n";
+    echo "  Filename (UEFI): " . $config['dhcpd']['{{ pfsense_dhcp_pxe_config.interface }}']['filename-efi'] . "\n";
+    EOF
+  register: _pxe_php_result
+  when: (_pxe_api_result is skipped) or (_pxe_api_result is failed)
+  changed_when: "'SUCCESS' in _pxe_php_result.stdout"
+
+- name: Display PXE boot configuration result
+  ansible.builtin.debug:
+    msg:
+      - "PXE boot configuration: {{ 'SUCCESS' if ((_pxe_api_result is changed) or ('SUCCESS' in _pxe_php_result.stdout)) else 'FAILED' }}"
+      - "Method used: {{ 'REST API' if (_pxe_api_result is changed) else 'PHP Shell' }}"
+      - "Interface: {{ pfsense_dhcp_pxe_config.interface }}"
+      - "Next-server: {{ pfsense_dhcp_pxe_config.next_server }}"
+  when: ansible_verbosity >= 0

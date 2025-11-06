@@ -1,0 +1,20 @@
+---
+# DHCP Management Tasks
+#
+# This module manages pfSense DHCP configuration including:
+# - Static DHCP mappings
+# - PXE boot configuration
+# - DHCP server options
+
+- name: Configure DHCP static mappings
+  ansible.builtin.include_tasks: static_mapping.yml
+  loop: "{{ pfsense_dhcp_static_mappings }}"
+  loop_control:
+    loop_var: mapping
+  when: pfsense_dhcp_static_mappings | length > 0
+
+- name: Configure DHCP PXE boot
+  ansible.builtin.include_tasks: pxe_boot.yml
+  when:
+    - pfsense_dhcp_pxe_config is defined
+    - pfsense_dhcp_pxe_config | length > 0

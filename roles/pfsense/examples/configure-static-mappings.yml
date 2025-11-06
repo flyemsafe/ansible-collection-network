@@ -1,0 +1,87 @@
+---
+# ==============================================================================
+# Example: Configure DHCP Static Mappings on pfSense
+# ==============================================================================
+#
+# This example demonstrates how to use the rhdc.network.pfsense role to
+# configure DHCP static mappings (reservations) across multiple interfaces.
+#
+# Features Demonstrated:
+#   - Multiple static mappings on different interfaces
+#   - Primary and BMC network interface configuration
+#   - Automatic API detection with PHP shell fallback
+#   - Idempotent operation (safe to run multiple times)
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts configure-static-mappings.yml
+#
+# ==============================================================================
+
+- name: Configure pfSense DHCP Static Mappings
+  hosts: pfsense
+  gather_facts: false
+
+  vars:
+    # Enable DHCP management
+    pfsense_manage_dhcp: true
+
+    # Static DHCP mappings
+    pfsense_dhcp_static_mappings:
+      # Primary server interface on VL12_SERVER
+      - interface: "opt11"
+        mac: "3c:ec:ef:ba:22:c1"
+        ipaddr: "172.23.12.42"
+        hostname: "kvmzfs02"
+        domain: "open.lab.rodhouse.net"
+        descr: "kvmzfs02 - Supermicro X12SCA-F - Primary 2.5G interface"
+
+      # BMC interface on VL10_BMC
+      - interface: "opt12"
+        mac: "3c:ec:ef:33:63:ce"
+        ipaddr: "172.23.10.42"
+        hostname: "kvmzfs02-ipmi"
+        domain: "lab.rodhouse.net"
+        descr: "kvmzfs02 - IPMI/BMC interface"
+
+      # Example: Additional server on LAN
+      - interface: "lan"
+        mac: "00:11:22:33:44:55"
+        ipaddr: "172.23.11.100"
+        hostname: "testserver"
+        domain: "lab.rodhouse.net"
+        descr: "Test server for development"
+
+  roles:
+    - rhdc.network.pfsense
+
+  post_tasks:
+    - name: Display static mapping summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "DHCP Static Mappings Configured"
+          - "========================================="
+          - ""
+          - "Configured {{ pfsense_dhcp_static_mappings | length }} static mapping(s):"
+          - ""
+          - "1. kvmzfs02 (VL12_SERVER/opt11):"
+          - "   MAC: 3c:ec:ef:ba:22:c1"
+          - "   IP: 172.23.12.42"
+          - "   FQDN: kvmzfs02.open.lab.rodhouse.net"
+          - ""
+          - "2. kvmzfs02-ipmi (VL10_BMC/opt12):"
+          - "   MAC: 3c:ec:ef:33:63:ce"
+          - "   IP: 172.23.10.42"
+          - "   FQDN: kvmzfs02-ipmi.lab.rodhouse.net"
+          - ""
+          - "3. testserver (LAN/lan):"
+          - "   MAC: 00:11:22:33:44:55"
+          - "   IP: 172.23.11.100"
+          - "   FQDN: testserver.lab.rodhouse.net"
+          - "========================================="
+          - ""
+          - "Next Steps:"
+          - "  1. Add DNS records for each hostname"
+          - "  2. Reboot systems to obtain new DHCP leases"
+          - "  3. Verify connectivity: ping <hostname>"
+          - "  4. Test DNS resolution: host <hostname>.<domain>"
