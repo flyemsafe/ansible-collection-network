@@ -1,0 +1,188 @@
+---
+# ==============================================================================
+# Example: Configure Firewall Rules on pfSense
+# ==============================================================================
+#
+# This example demonstrates how to use the rhdc.network.pfsense role to
+# create and manage firewall rules for traffic control between VLANs.
+#
+# This addresses multiple issues:
+#   - Issue #199: PXE boot access from multiple VLAANs
+#   - Issue #198: Guest VLAN isolation from production networks
+#   - Issue #203: DDNS access rules
+#
+# Features Demonstrated:
+#   - Allow rules (pass traffic)
+#   - Block rules (deny traffic)
+#   - Protocol-specific rules (TCP, UDP, ICMP)
+#   - Port-specific rules
+#   - Using firewall aliases in rules
+#   - Cross-VLAN access control
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts configure-firewall-rules.yml
+#
+# ==============================================================================
+
+- name: Configure pfSense Firewall Rules
+  hosts: pfsense
+  gather_facts: false
+
+  vars:
+    # Enable firewall management
+    pfsense_manage_firewall: true
+
+    # PXE server details
+    pxe_server_ip: "172.23.11.5"  # tuareg.lab.rodhouse.net
+    pxe_server_name: "tuareg"
+
+    # Firewall rules to create
+    pfsense_firewall_rules:
+      # ========================================
+      # PXE Boot Access Rules (Issue #199)
+      # ========================================
+      # Allow LAN VLAN to access TFTP for PXE boot
+      - name: "Allow LAN to {{ pxe_server_name }} TFTP"
+        interface: "lan"
+        action: "pass"
+        protocol: "udp"
+        source: "172.23.11.0/24"
+        destination: "{{ pxe_server_ip }}"
+        destination_port: "69"
+
+      - name: "Allow LAN to {{ pxe_server_name }} HTTP boot"
+        interface: "lan"
+        action: "pass"
+        protocol: "tcp"
+        source: "172.23.11.0/24"
+        destination: "{{ pxe_server_ip }}"
+        destination_port: "80"
+
+      - name: "Allow LAN to {{ pxe_server_name }} Web UI"
+        interface: "lan"
+        action: "pass"
+        protocol: "tcp"
+        source: "172.23.11.0/24"
+        destination: "{{ pxe_server_ip }}"
+        destination_port: "3000"
+
+      # Allow ACME VLAN (opt1) to access PXE boot
+      - name: "Allow ACME to {{ pxe_server_name }} TFTP"
+        interface: "opt1"
+        action: "pass"
+        protocol: "udp"
+        source: "172.23.60.0/24"
+        destination: "{{ pxe_server_ip }}"
+        destination_port: "69"
+
+      - name: "Allow ACME to {{ pxe_server_name }} HTTP boot"
+        interface: "opt1"
+        action: "pass"
+        protocol: "tcp"
+        source: "172.23.60.0/24"
+        destination: "{{ pxe_server_ip }}"
+        destination_port: "80"
+
+      # ========================================
+      # Guest VLAN Isolation (Issue #198)
+      # ========================================
+      # Block guest VLAN from accessing restricted networks
+      # Note: This example uses an IP address, but in production you should
+      #       first create the RESTRICTED_NETWORKS alias using
+      #       configure-firewall-aliases.yml
+      - name: "Block guest to BMC network"
+        interface: "opt5"  # VL50_GUEST
+        action: "block"
+        protocol: "any"
+        source: "172.23.50.0/24"
+        destination: "172.23.10.0/24"  # VL10_BMC
+
+      - name: "Block guest to server network"
+        interface: "opt5"  # VL50_GUEST
+        action: "block"
+        protocol: "any"
+        source: "172.23.50.0/24"
+        destination: "172.23.12.0/24"  # VL12_SERVER
+
+      # Allow guest VLAN to access DNS and internet
+      - name: "Allow guest to internet"
+        interface: "opt5"  # VL50_GUEST
+        action: "pass"
+        protocol: "any"
+        source: "172.23.50.0/24"
+        destination: "any"
+
+      # ========================================
+      # Management Access Rules
+      # ========================================
+      # Allow management VLAN to access admin services
+      - name: "Allow MGMT to pfSense SSH"
+        interface: "lan"
+        action: "pass"
+        protocol: "tcp"
+        source: "172.23.11.0/24"
+        destination: "(self)"
+        destination_port: "22"
+
+      - name: "Allow MGMT to pfSense Web UI"
+        interface: "lan"
+        action: "pass"
+        protocol: "tcp"
+        source: "172.23.11.0/24"
+        destination: "(self)"
+        destination_port: "443"
+
+      # ========================================
+      # ICMP Rules (Ping)
+      # ========================================
+      # Allow ICMP from management network
+      - name: "Allow MGMT to ping anywhere"
+        interface: "lan"
+        action: "pass"
+        protocol: "icmp"
+        source: "172.23.11.0/24"
+        destination: "any"
+
+  roles:
+    - rhdc.network.pfsense
+
+  post_tasks:
+    - name: Display firewall rule summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================="
+          - "Firewall Rules Configured"
+          - "========================================="
+          - ""
+          - "PXE Boot Access (Issue #199):"
+          - "  - LAN → tuareg (TFTP, HTTP, Web UI)"
+          - "  - ACME (OPT1) → tuareg (TFTP, HTTP)"
+          - ""
+          - "Guest VLAN Isolation (Issue #198):"
+          - "  - BLOCKED: Guest → BMC network"
+          - "  - BLOCKED: Guest → Server network"
+          - "  - ALLOWED: Guest → Internet"
+          - ""
+          - "Management Access:"
+          - "  - MGMT → pfSense SSH (port 22)"
+          - "  - MGMT → pfSense Web UI (port 443)"
+          - "  - MGMT → Ping anywhere"
+          - "========================================="
+          - ""
+          - "These rules are now active!"
+          - ""
+          - "Next Steps:"
+          - "  1. Verify rules in pfSense GUI: Firewall → Rules"
+          - "  2. Test PXE boot from LAN and ACME VLANs"
+          - "  3. Verify guest isolation:"
+          - "     - From guest VLAN, try: ping 172.23.10.1 (should FAIL)"
+          - "     - From guest VLAN, try: ping 8.8.8.8 (should SUCCEED)"
+          - "  4. Test management access from MGMT VLAN"
+          - "========================================="
+          - ""
+          - "Pro Tips:"
+          - "  - Create firewall aliases first for easier management"
+          - "  - Use descriptive rule names for troubleshooting"
+          - "  - Block rules should come before allow rules"
+          - "  - Test changes in non-production hours"
+          - "========================================="

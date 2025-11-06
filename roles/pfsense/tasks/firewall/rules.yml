@@ -1,0 +1,131 @@
+---
+# Configure Firewall Rule
+#
+# This task creates or updates a firewall rule on pfSense.
+# Rules control traffic between interfaces and networks.
+#
+# Variables required (from rule loop variable):
+#   - name:        Rule description (used for idempotency)
+#   - interface:   Interface name (e.g., "lan", "wan", "opt1")
+#   - action:      Rule action: "pass", "block", "reject"
+#
+# Variables optional:
+#   - protocol:    Protocol: "tcp", "udp", "icmp", "any" (default: "any")
+#   - source:      Source address/network/alias (default: "any")
+#   - destination: Destination address/network/alias (default: "any")
+#   - destination_port: Destination port or range (optional)
+#   - source_port: Source port or range (optional)
+#   - disabled:    true/false (default: false)
+
+- name: Display rule configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring firewall rule: {{ rule.name }}"
+      - "Interface: {{ rule.interface }}"
+      - "Action: {{ rule.action }}"
+      - "Protocol: {{ rule.protocol | default('any') }}"
+      - "Source: {{ rule.source | default('any') }}"
+      - "Destination: {{ rule.destination | default('any') }}"
+  when: ansible_verbosity >= 1
+
+# PHP shell method (primary method - API doesn't support firewall rules yet)
+- name: Configure firewall rule via PHP shell
+  ansible.builtin.raw: |
+    pfSsh.php <<'EOF'
+    require_once("filter.inc");
+    $config = parse_config(true);
+
+    // Initialize filter rules array if it doesn't exist
+    if (!isset($config['filter']['rule'])) {
+        $config['filter']['rule'] = array();
+    }
+
+    // Build rule array
+    $new_rule = array(
+        'type' => '{{ rule.action }}',
+        'interface' => '{{ rule.interface }}',
+        'ipprotocol' => 'inet',
+        'protocol' => '{{ rule.protocol | default("any") }}',
+        'descr' => '{{ rule.name }}',
+        'source' => array(),
+        'destination' => array()
+    );
+
+    // Set source
+    {% if rule.source is defined and rule.source != 'any' %}
+    $new_rule['source']['address'] = '{{ rule.source }}';
+    {% else %}
+    $new_rule['source']['any'] = '';
+    {% endif %}
+
+    // Set destination
+    {% if rule.destination is defined and rule.destination != 'any' %}
+    $new_rule['destination']['address'] = '{{ rule.destination }}';
+    {% else %}
+    $new_rule['destination']['any'] = '';
+    {% endif %}
+
+    // Set destination port if specified
+    {% if rule.destination_port is defined %}
+    $new_rule['destination']['port'] = '{{ rule.destination_port }}';
+    {% endif %}
+
+    // Set source port if specified
+    {% if rule.source_port is defined %}
+    $new_rule['source']['port'] = '{{ rule.source_port }}';
+    {% endif %}
+
+    // Set disabled state if specified
+    {% if rule.disabled is defined and rule.disabled %}
+    $new_rule['disabled'] = '';
+    {% endif %}
+
+    // Check if rule exists (by description)
+    $found = false;
+    $rule_index = -1;
+    $rule_name = '{{ rule.name }}';
+
+    foreach ($config['filter']['rule'] as $idx => $existing_rule) {
+        if (isset($existing_rule['descr']) && $existing_rule['descr'] == $rule_name) {
+            $found = true;
+            $rule_index = $idx;
+            break;
+        }
+    }
+
+    // Update existing or add new rule
+    if ($found) {
+        $config['filter']['rule'][$rule_index] = $new_rule;
+        echo "UPDATED: Firewall rule {{ rule.name }}\n";
+    } else {
+        $config['filter']['rule'][] = $new_rule;
+        echo "ADDED: Firewall rule {{ rule.name }}\n";
+    }
+
+    // Save configuration
+    write_config("Configured firewall rule {{ rule.name }} via Ansible (rhdc.network.pfsense role)");
+
+    // Reload filter (firewall rules)
+    filter_configure();
+
+    echo "SUCCESS: Firewall rule {{ rule.name }} configured\n";
+    echo "  Interface: {{ rule.interface }}\n";
+    echo "  Action: {{ rule.action }}\n";
+    echo "  Protocol: {{ rule.protocol | default('any') }}\n";
+    echo "  Source: {{ rule.source | default('any') }}\n";
+    echo "  Destination: {{ rule.destination | default('any') }}\n";
+    {% if rule.destination_port is defined %}
+    echo "  Destination Port: {{ rule.destination_port }}\n";
+    {% endif %}
+    EOF
+  register: _rule_php_result
+  changed_when: "'SUCCESS' in _rule_php_result.stdout"
+
+- name: Display rule configuration result
+  ansible.builtin.debug:
+    msg:
+      - "Rule configuration: {{ 'SUCCESS' if 'SUCCESS' in _rule_php_result.stdout else 'FAILED' }}"
+      - "Rule: {{ rule.name }}"
+      - "Interface: {{ rule.interface }}"
+      - "Action: {{ 'UPDATED' if 'UPDATED' in _rule_php_result.stdout else 'ADDED' if 'ADDED' in _rule_php_result.stdout else 'CONFIGURED' }}"
+  when: ansible_verbosity >= 0

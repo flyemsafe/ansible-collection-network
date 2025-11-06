@@ -87,6 +87,34 @@ pfsense_firewall_aliases:
     descr: "Administrative service ports"
 ```
 
+#### Rules
+
+```yaml
+pfsense_firewall_rules:
+  - name: "Allow LAN to TFTP on tuareg"
+    interface: "lan"
+    action: "pass"
+    protocol: "udp"
+    source: "172.23.11.0/24"
+    destination: "172.23.11.5"
+    destination_port: "69"
+
+  - name: "Block guest to restricted networks"
+    interface: "opt5"  # VL50_GUEST
+    action: "block"
+    protocol: "any"
+    source: "172.23.50.0/24"
+    destination: "RESTRICTED_NETWORKS"  # Can use alias
+
+  - name: "Allow SSH to pfSense from mgmt"
+    interface: "lan"
+    action: "pass"
+    protocol: "tcp"
+    source: "172.23.11.0/24"
+    destination: "(self)"
+    destination_port: "22"
+```
+
 ## Dependencies
 
 None.

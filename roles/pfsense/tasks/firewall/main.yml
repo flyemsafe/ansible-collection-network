@@ -9,6 +9,7 @@
     msg:
       - "Configuring pfSense firewall"
       - "Managing {{ pfsense_firewall_aliases | length }} alias(es)"
+      - "Managing {{ pfsense_firewall_rules | length }} rule(s)"
   when: ansible_verbosity >= 1
 
 # Alias Management
@@ -20,3 +21,13 @@
   when:
     - pfsense_firewall_aliases | length > 0
     - alias.state | default('present') == 'present'
+
+# Rule Management
+- name: Configure firewall rules
+  ansible.builtin.include_tasks: rules.yml
+  loop: "{{ pfsense_firewall_rules }}"
+  loop_control:
+    loop_var: rule
+  when:
+    - pfsense_firewall_rules | length > 0
+    - rule.state | default('present') == 'present'

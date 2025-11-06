@@ -61,6 +61,32 @@ pfsense_firewall_aliases: []
 #       - "443"
 #     descr: "Administrative service ports"
 
+pfsense_firewall_rules: []
+# Example:
+# pfsense_firewall_rules:
+#   - name: "Allow LAN to TFTP on tuareg"
+#     interface: "lan"
+#     action: "pass"
+#     protocol: "udp"
+#     source: "172.23.11.0/24"
+#     destination: "172.23.11.5"
+#     destination_port: "69"
+#
+#   - name: "Block guest VLAN to restricted networks"
+#     interface: "opt5"
+#     action: "block"
+#     protocol: "any"
+#     source: "172.23.50.0/24"
+#     destination: "RESTRICTED_NETWORKS"  # Can use alias
+#
+#   - name: "Allow SSH to firewall from mgmt network"
+#     interface: "lan"
+#     action: "pass"
+#     protocol: "tcp"
+#     source: "172.23.11.0/24"
+#     destination: "(self)"
+#     destination_port: "22"
+
 # HAProxy configuration
 pfsense_haproxy_backends: []
 pfsense_haproxy_frontends: []
