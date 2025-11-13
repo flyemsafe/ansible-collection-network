@@ -1,0 +1,117 @@
+---
+# ==============================================================================
+# MikroTik RouterOS SSH Key Configuration
+# ==============================================================================
+#
+# Configures SSH public key authentication for passwordless access
+#
+# Requirements:
+# - mikrotik_ssh_public_key_file must point to valid public key
+# - Initial password authentication required for setup
+#
+# ==============================================================================
+
+- name: Validate SSH key parameters
+  ansible.builtin.assert:
+    that:
+      - mikrotik_ssh_public_key_file is defined
+      - mikrotik_ssh_public_key_file | length > 0
+    fail_msg: "mikrotik_ssh_public_key_file must be specified"
+
+- name: Check if SSH public key file exists
+  ansible.builtin.stat:
+    path: "{{ mikrotik_ssh_public_key_file }}"
+  delegate_to: localhost
+  register: _mikrotik_ssh_key_stat
+
+- name: Fail if SSH public key not found
+  ansible.builtin.fail:
+    msg: "SSH public key file not found: {{ mikrotik_ssh_public_key_file }}"
+  when: not _mikrotik_ssh_key_stat.stat.exists
+
+- name: Read SSH public key content
+  ansible.builtin.slurp:
+    src: "{{ mikrotik_ssh_public_key_file }}"
+  delegate_to: localhost
+  register: _mikrotik_ssh_key_content
+
+- name: Set SSH public key fact
+  ansible.builtin.set_fact:
+    _mikrotik_ssh_public_key: "{{ _mikrotik_ssh_key_content['content'] | b64decode | trim }}"
+
+- name: Display SSH key configuration info
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "Configuring SSH Key Authentication"
+      - "========================================="
+      - "Device: {{ mikrotik_identity }}"
+      - "User: {{ mikrotik_username }}"
+      - "Public key file: {{ mikrotik_ssh_public_key_file }}"
+      - "========================================="
+
+- name: Upload SSH public key to MikroTik
+  ansible.builtin.shell: |
+    scp -o KexAlgorithms=+diffie-hellman-group-exchange-sha256 \
+        -o Ciphers=+aes128-ctr \
+        -o MACs=+hmac-sha2-256 \
+        -o StrictHostKeyChecking=no \
+        {{ mikrotik_ssh_public_key_file }} \
+        {{ mikrotik_username }}@{{ mikrotik_hostname }}:{{ mikrotik_username }}-key.pub
+  delegate_to: localhost
+  register: _mikrotik_scp_result
+  changed_when: true
+
+- name: Import SSH public key on MikroTik
+  ansible.builtin.shell: |
+    ssh -o KexAlgorithms=+diffie-hellman-group-exchange-sha256 \
+        -o Ciphers=+aes128-ctr \
+        -o MACs=+hmac-sha2-256 \
+        -o StrictHostKeyChecking=no \
+        {{ mikrotik_username }}@{{ mikrotik_hostname }} \
+        "/user ssh-keys import public-key-file={{ mikrotik_username }}-key.pub user={{ mikrotik_username }}"
+  delegate_to: localhost
+  register: _mikrotik_import_result
+  changed_when: true
+  failed_when: false  # May already exist
+
+- name: Remove uploaded key file from MikroTik
+  ansible.builtin.shell: |
+    ssh -o KexAlgorithms=+diffie-hellman-group-exchange-sha256 \
+        -o Ciphers=+aes128-ctr \
+        -o MACs=+hmac-sha2-256 \
+        -o StrictHostKeyChecking=no \
+        {{ mikrotik_username }}@{{ mikrotik_hostname }} \
+        "/file remove {{ mikrotik_username }}-key.pub"
+  delegate_to: localhost
+  register: _mikrotik_cleanup_result
+  changed_when: true
+  failed_when: false
+
+- name: Test passwordless SSH connection
+  ansible.builtin.shell: |
+    ssh -o KexAlgorithms=+diffie-hellman-group-exchange-sha256 \
+        -o Ciphers=+aes128-ctr \
+        -o MACs=+hmac-sha2-256 \
+        -o StrictHostKeyChecking=no \
+        -o PreferredAuthentications=publickey \
+        -o BatchMode=yes \
+        {{ mikrotik_username }}@{{ mikrotik_hostname }} \
+        "/system identity print"
+  delegate_to: localhost
+  register: _mikrotik_test_result
+  changed_when: false
+
+- name: Display test result
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "SSH Key Authentication Configured"
+      - "========================================="
+      - "Device: {{ mikrotik_identity }}"
+      - "User: {{ mikrotik_username }}"
+      - ""
+      - "Passwordless SSH authentication is now enabled."
+      - "Test connection output:"
+      - "{{ _mikrotik_test_result.stdout_lines }}"
+      - "========================================="

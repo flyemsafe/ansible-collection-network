@@ -14,6 +14,7 @@
     ansible_user: "{{ mikrotik_username }}"
     ansible_password: "{{ mikrotik_password }}"
     ansible_host: "{{ mikrotik_hostname }}"
+    ansible_ssh_common_args: '-o HostKeyAlgorithms=+ssh-rsa -o PubkeyAcceptedKeyTypes=+ssh-rsa -o KexAlgorithms=+diffie-hellman-group1-sha1,diffie-hellman-group14-sha1 -o Ciphers=+aes128-cbc,aes256-cbc'
 
 - name: Configure NTP client
   community.routeros.command:

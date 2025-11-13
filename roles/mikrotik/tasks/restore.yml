@@ -1,0 +1,145 @@
+---
+# ==============================================================================
+# MikroTik RouterOS Configuration Restore
+# ==============================================================================
+#
+# Restores configuration from either:
+# - Binary backup (.backup) - Full restore, requires reboot
+# - Text export (.rsc) - Script-based restore, safer
+#
+# Requirements:
+# - mikrotik_restore_file must be defined
+# - File must exist in mikrotik_backup_dir
+#
+# ==============================================================================
+
+- name: Validate restore parameters
+  ansible.builtin.assert:
+    that:
+      - mikrotik_restore_file is defined
+      - mikrotik_restore_file | length > 0
+    fail_msg: "mikrotik_restore_file must be specified"
+
+- name: Determine restore type from file extension
+  ansible.builtin.set_fact:
+    _mikrotik_restore_type: "{{ 'backup' if mikrotik_restore_file.endswith('.backup') else 'export' }}"
+    _mikrotik_restore_path: "{{ mikrotik_backup_dir }}/{{ mikrotik_restore_file }}"
+
+- name: Check if restore file exists locally
+  ansible.builtin.stat:
+    path: "{{ _mikrotik_restore_path }}"
+  delegate_to: localhost
+  register: _mikrotik_restore_file_stat
+
+- name: Fail if restore file not found
+  ansible.builtin.fail:
+    msg: "Restore file not found: {{ _mikrotik_restore_path }}"
+  when: not _mikrotik_restore_file_stat.stat.exists
+
+- name: Display restore warning
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "WARNING: Configuration Restore"
+      - "========================================="
+      - ""
+      - "Device: {{ mikrotik_identity }}"
+      - "Restore file: {{ mikrotik_restore_file }}"
+      - "Restore type: {{ _mikrotik_restore_type | upper }}"
+      - ""
+      - "{% if _mikrotik_restore_type == 'backup' %}"
+      - "Binary restore will:"
+      - "  - Reboot the device"
+      - "  - Replace ALL configuration"
+      - "  - Require device to be same RouterOS version"
+      - "{% else %}"
+      - "Export restore will:"
+      - "  - Apply configuration script"
+      - "  - May require manual verification"
+      - "  - Safer than binary restore"
+      - "{% endif %}"
+      - ""
+      - "========================================="
+
+- name: Confirm restore operation
+  ansible.builtin.pause:
+    prompt: |
+
+      Press ENTER to continue with restore or Ctrl+C to abort...
+  when: not (mikrotik_auto_confirm | default(false) | bool)
+
+- name: Upload restore file to MikroTik
+  ansible.builtin.shell: |
+    scp -o KexAlgorithms=+diffie-hellman-group-exchange-sha256 \
+        -o Ciphers=+aes128-ctr \
+        -o MACs=+hmac-sha2-256 \
+        -o StrictHostKeyChecking=no \
+        {{ _mikrotik_restore_path }} \
+        {{ mikrotik_username }}@{{ mikrotik_hostname }}:{{ mikrotik_restore_file }}
+  delegate_to: localhost
+  register: _mikrotik_upload_result
+  changed_when: true
+
+- name: Restore from binary backup
+  when: _mikrotik_restore_type == 'backup'
+  block:
+    - name: Load binary backup
+      community.routeros.command:
+        commands:
+          - /system backup load name={{ mikrotik_restore_file | regex_replace('\\.backup$', '') }}
+      register: _mikrotik_restore_result
+
+    - name: Display restore message
+      ansible.builtin.debug:
+        msg:
+          - "Binary backup loaded. Device will reboot now."
+          - "Wait 60-90 seconds for device to come back online."
+
+    - name: Wait for device to reboot
+      ansible.builtin.wait_for:
+        host: "{{ mikrotik_hostname }}"
+        port: "{{ mikrotik_port }}"
+        delay: 30
+        timeout: 120
+        state: started
+      delegate_to: localhost
+
+- name: Restore from configuration export
+  when: _mikrotik_restore_type == 'export'
+  block:
+    - name: Import configuration script
+      community.routeros.command:
+        commands:
+          - /import file-name={{ mikrotik_restore_file }}
+      register: _mikrotik_import_result
+
+    - name: Display import result
+      ansible.builtin.debug:
+        var: _mikrotik_import_result.stdout_lines
+
+- name: Clean up uploaded file from MikroTik
+  community.routeros.command:
+    commands:
+      - /file remove {{ mikrotik_restore_file }}
+  register: _mikrotik_cleanup_result
+  failed_when: false
+
+- name: Verify device is responding
+  community.routeros.command:
+    commands:
+      - /system identity print
+      - /system resource print
+  register: _mikrotik_verify_result
+
+- name: Display verification
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "MikroTik Restore Complete"
+      - "========================================="
+      - "Device: {{ mikrotik_identity }}"
+      - "Restore type: {{ _mikrotik_restore_type | upper }}"
+      - "Restored from: {{ mikrotik_restore_file }}"
+      - ""
+      - "Device is responding and online."
+      - "========================================="

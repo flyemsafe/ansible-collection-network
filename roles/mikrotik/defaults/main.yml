@@ -64,6 +64,32 @@ mikrotik_ntp_enabled: true
 mikrotik_ntp_servers:
   - "172.23.11.1"  # pfSense
 
-# Backup configuration
+# ==============================================================================
+# Operation Mode
+# ==============================================================================
+# Determines which operation to perform
+# Options: configure, backup, restore, ssh_key
+mikrotik_operation: "configure"
+
+# ==============================================================================
+# Backup Configuration
+# ==============================================================================
 mikrotik_backup_enabled: false
-mikrotik_backup_path: "/tmp/mikrotik-backup.rsc"
+mikrotik_backup_dir: "/tmp/mikrotik-backups"
+mikrotik_backup_prefix: "{{ mikrotik_identity | default('mikrotik') }}"
+mikrotik_backup_retention_days: 30
+
+# ==============================================================================
+# Restore Configuration
+# ==============================================================================
+# File must exist in mikrotik_backup_dir
+# Examples: "mikrotik-crs309-backup-2025-11-13_120000.backup"
+#           "mikrotik-crs309-export-2025-11-13_120000.rsc"
+#           "latest.backup" or "latest.rsc"
+mikrotik_restore_file: ""
+mikrotik_auto_confirm: false  # Set to true to skip confirmation prompt
+
+# ==============================================================================
+# SSH Key Configuration
+# ==============================================================================
+mikrotik_ssh_public_key_file: "~/.ssh/id_rsa.pub"

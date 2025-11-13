@@ -4,14 +4,33 @@ Configure MikroTik RouterOS switches with 10G SFP+ trunk, VLAN support, and stor
 
 ## Description
 
-This role automates the configuration of MikroTik CRS-series switches running RouterOS. It supports:
+This role automates the configuration and management of MikroTik CRS-series switches running RouterOS. It supports:
 
+### Configuration Mode (default)
 - **10G SFP+ trunk port** to upstream switch (UniFi)
 - **VLAN configuration** (Management VLAN 11, Storage VLAN 13)
 - **Bridge and VLAN filtering** for proper traffic isolation
 - **Storage port configuration** for server 10G connectivity
 - **System setup** (identity, NTP, timezone, jumbo frames)
-- **Monitoring** (optional SNMP, configuration backup)
+- **Monitoring** (optional SNMP)
+
+### Backup Mode
+- **Binary backup (.backup)** - Full system backup
+- **Text export (.rsc)** - Script-based configuration export
+- **Automatic download** to local directory
+- **Retention management** - Cleanup old backups
+- **Latest symlinks** - Easy access to most recent backups
+
+### Restore Mode
+- **Binary restore** - Full configuration replacement (requires reboot)
+- **Text import** - Script-based restore (safer, no reboot)
+- **Confirmation prompts** - Prevent accidental restores
+- **Automatic verification** - Confirms device responds after restore
+
+### SSH Key Setup Mode
+- **Passwordless authentication** - Upload and import SSH public keys
+- **Automatic testing** - Verifies key-based login works
+- **Cleanup** - Removes temporary files
 
 ## Requirements
 
@@ -122,16 +141,69 @@ None.
         mikrotik_trunk_interface: "sfp-sfpplus8"
 ```
 
+### Backup Operations
+```yaml
+---
+- name: Backup MikroTik Configuration
+  hosts: mikrotik_switches
+  gather_facts: false
+
+  roles:
+    - role: rhdc.network.mikrotik
+      vars:
+        mikrotik_operation: backup
+        mikrotik_backup_dir: "{{ playbook_dir }}/backups/mikrotik"
+        mikrotik_backup_retention_days: 30
+```
+
+### Restore Operations
+```yaml
+---
+- name: Restore MikroTik Configuration from Backup
+  hosts: mikrotik_switches
+  gather_facts: false
+
+  roles:
+    - role: rhdc.network.mikrotik
+      vars:
+        mikrotik_operation: restore
+        mikrotik_backup_dir: "{{ playbook_dir }}/backups/mikrotik"
+        mikrotik_restore_file: "latest.rsc"  # or specific file
+```
+
+### SSH Key Setup
+```yaml
+---
+- name: Setup SSH Key Authentication
+  hosts: mikrotik_switches
+  gather_facts: false
+
+  roles:
+    - role: rhdc.network.mikrotik
+      vars:
+        mikrotik_operation: ssh_key
+        mikrotik_ssh_public_key_file: "~/.ssh/id_rsa.pub"
+```
+
 ### Tags
 Run specific configuration tasks:
 ```bash
-# Only configure bridges and VLANs
+# Backup operations
+ansible-playbook playbook.yml --tags mikrotik_backup
+
+# Restore operations
+ansible-playbook playbook.yml --tags mikrotik_restore
+
+# SSH key setup
+ansible-playbook playbook.yml --tags mikrotik_ssh_key
+
+# Only configure bridges and VLANs (configure mode)
 ansible-playbook playbook.yml --tags mikrotik_vlan
 
-# Only configure storage ports
+# Only configure storage ports (configure mode)
 ansible-playbook playbook.yml --tags mikrotik_storage
 
-# Skip monitoring configuration
+# Skip monitoring configuration (configure mode)
 ansible-playbook playbook.yml --skip-tags mikrotik_monitoring
 ```
 

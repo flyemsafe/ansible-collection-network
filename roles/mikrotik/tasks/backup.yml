@@ -1,0 +1,129 @@
+---
+# ==============================================================================
+# MikroTik RouterOS Configuration Backup
+# ==============================================================================
+#
+# Creates both binary (.backup) and text export (.rsc) backups
+# Downloads to local backup directory
+# Creates symlinks to latest backups
+# Cleans up old backups based on retention policy
+#
+# ==============================================================================
+
+- name: Get current timestamp for backup
+  ansible.builtin.command: date +%Y-%m-%d_%H%M%S
+  delegate_to: localhost
+  register: _mikrotik_timestamp_result
+  changed_when: false
+  run_once: true
+
+- name: Set backup filenames
+  ansible.builtin.set_fact:
+    _mikrotik_backup_timestamp: "{{ _mikrotik_timestamp_result.stdout }}"
+    _mikrotik_backup_name: "{{ mikrotik_backup_prefix }}-backup-{{ _mikrotik_timestamp_result.stdout }}"
+    _mikrotik_export_name: "{{ mikrotik_backup_prefix }}-export-{{ _mikrotik_timestamp_result.stdout }}"
+
+- name: Ensure local backup directory exists
+  ansible.builtin.file:
+    path: "{{ mikrotik_backup_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+- name: Create system backup on MikroTik (binary)
+  community.routeros.command:
+    commands:
+      - /system backup save name={{ _mikrotik_backup_name }} dont-encrypt=yes
+  register: _mikrotik_backup_result
+
+- name: Wait for backup to complete
+  ansible.builtin.pause:
+    seconds: 3
+
+- name: Export configuration (text/script format)
+  community.routeros.command:
+    commands:
+      - /export file={{ _mikrotik_export_name }}
+  register: _mikrotik_export_result
+
+- name: Wait for export to complete
+  ansible.builtin.pause:
+    seconds: 2
+
+- name: Download binary backup file from MikroTik
+  ansible.builtin.shell: |
+    scp -o KexAlgorithms=+diffie-hellman-group-exchange-sha256 \
+        -o Ciphers=+aes128-ctr \
+        -o MACs=+hmac-sha2-256 \
+        -o StrictHostKeyChecking=no \
+        {{ mikrotik_username }}@{{ mikrotik_hostname }}:{{ _mikrotik_backup_name }}.backup \
+        {{ mikrotik_backup_dir }}/{{ _mikrotik_backup_name }}.backup
+  delegate_to: localhost
+  register: _mikrotik_download_backup
+  changed_when: true
+
+- name: Download export file from MikroTik
+  ansible.builtin.shell: |
+    scp -o KexAlgorithms=+diffie-hellman-group-exchange-sha256 \
+        -o Ciphers=+aes128-ctr \
+        -o MACs=+hmac-sha2-256 \
+        -o StrictHostKeyChecking=no \
+        {{ mikrotik_username }}@{{ mikrotik_hostname }}:{{ _mikrotik_export_name }}.rsc \
+        {{ mikrotik_backup_dir }}/{{ _mikrotik_export_name }}.rsc
+  delegate_to: localhost
+  register: _mikrotik_download_export
+  changed_when: true
+
+- name: Clean up backup files from MikroTik
+  community.routeros.command:
+    commands:
+      - /file remove {{ _mikrotik_backup_name }}.backup
+      - /file remove {{ _mikrotik_export_name }}.rsc
+  register: _mikrotik_cleanup_result
+  failed_when: false
+
+- name: Create symlink to latest binary backup
+  ansible.builtin.file:
+    src: "{{ _mikrotik_backup_name }}.backup"
+    dest: "{{ mikrotik_backup_dir }}/latest.backup"
+    state: link
+    force: yes
+  delegate_to: localhost
+
+- name: Create symlink to latest export
+  ansible.builtin.file:
+    src: "{{ _mikrotik_export_name }}.rsc"
+    dest: "{{ mikrotik_backup_dir }}/latest.rsc"
+    state: link
+    force: yes
+  delegate_to: localhost
+
+- name: Display backup information
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "MikroTik Backup Complete"
+      - "========================================="
+      - "Device: {{ mikrotik_identity }}"
+      - "Timestamp: {{ _mikrotik_backup_timestamp }}"
+      - "Binary backup: {{ mikrotik_backup_dir }}/{{ _mikrotik_backup_name }}.backup"
+      - "Text export: {{ mikrotik_backup_dir }}/{{ _mikrotik_export_name }}.rsc"
+      - "Latest symlinks: latest.backup, latest.rsc"
+      - ""
+      - "To restore binary backup:"
+      - "  Use mikrotik_operation: restore"
+      - "  Set mikrotik_restore_file: {{ _mikrotik_backup_name }}.backup"
+      - ""
+      - "To restore text export:"
+      - "  Use mikrotik_operation: restore"
+      - "  Set mikrotik_restore_file: {{ _mikrotik_export_name }}.rsc"
+      - "========================================="
+
+- name: Cleanup old backups (keep based on retention policy)
+  ansible.builtin.shell: |
+    find {{ mikrotik_backup_dir }} -name "{{ mikrotik_backup_prefix }}-*" -type f -mtime +{{ mikrotik_backup_retention_days }} -delete
+  delegate_to: localhost
+  changed_when: false
+  failed_when: false
+  when: mikrotik_backup_retention_days > 0
