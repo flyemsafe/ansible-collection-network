@@ -19,8 +19,8 @@ This role provides a unified interface for managing pfSense configuration. It au
 
 ```yaml
 # pfSense API connection (required)
-pfsense_api_url: "https://172.23.11.1/api/v1"
-pfsense_api_key: "{{ vault_pfsense_api_key }}"  # Store in Ansible Vault
+pfsense_api_url: "https://{{ ansible_host }}:10443/api/v2"
+pfsense_api_key: "{{ network.pfsense.api_key }}"  # Store in Ansible Vault
 pfsense_hostname: "{{ inventory_hostname }}"
 pfsense_validate_certs: false
 
@@ -35,7 +35,33 @@ pfsense_manage_dhcp: false      # Enable DHCP management
 pfsense_manage_dns: false       # Enable DNS management
 pfsense_manage_firewall: false  # Enable firewall management
 pfsense_manage_haproxy: false   # Enable HAProxy management
+pfsense_manage_openvpn: false   # Enable OpenVPN management
 pfsense_manage_backup: false    # Enable backup management
+```
+
+### OpenVPN Configuration
+
+```yaml
+# OpenVPN certificate management
+pfsense_manage_openvpn_certificates: true  # Update certificates when enabled
+pfsense_openvpn_server_name: "LOCAL VPN TUNNEL"
+pfsense_openvpn_certificate_name: "rodhouse-dot-net-wildcard"
+pfsense_openvpn_expiration_threshold: 30  # Days before expiration to update
+```
+
+### Backup Configuration
+
+```yaml
+pfsense_backup_dir: "/tmp/pfsense-backups"
+pfsense_backup_prefix: "{{ pfsense_hostname }}"
+pfsense_backup_retention_days: 30
+```
+
+### General Settings
+
+```yaml
+pfsense_auto_confirm: false  # Set to true to skip confirmation prompts
+pfsense_verbose: false       # Enable verbose output for debugging
 ```
 
 ### DHCP Configuration
@@ -172,6 +198,44 @@ None.
     - rhdc.network.pfsense
 ```
 
+### Update OpenVPN Server Certificates
+
+```yaml
+---
+- name: Update pfSense OpenVPN Certificate
+  hosts: pfsense
+  gather_facts: true
+
+  vars:
+    pfsense_manage_openvpn: true
+    pfsense_manage_openvpn_certificates: true
+    pfsense_openvpn_server_name: "LOCAL VPN TUNNEL"
+    pfsense_openvpn_certificate_name: "rodhouse-dot-net-wildcard"
+    pfsense_openvpn_expiration_threshold: 30  # Update if < 30 days left
+
+  roles:
+    - rhdc.network.pfsense
+```
+
+**Note**: After certificate update, manually restart OpenVPN service via web GUI (VPN → OpenVPN → Servers → Restart openvpn service).
+
+### Backup pfSense Configuration
+
+```yaml
+---
+- name: Backup pfSense Configuration
+  hosts: pfsense
+  gather_facts: false
+
+  vars:
+    pfsense_manage_backup: true
+    pfsense_backup_dir: "{{ playbook_dir }}/backups/pfsense"
+    pfsense_backup_retention_days: 30
+
+  roles:
+    - rhdc.network.pfsense
+```
+
 ## Architecture
 
 ### API vs PHP Shell Strategy
@@ -188,10 +252,10 @@ The role implements a hybrid approach:
 |---------|----------|-----------|-------|
 | System Version | ✅ | ✅ | API preferred |
 | HAProxy | ✅ | ✅ | API preferred |
+| Firewall Aliases | ✅ | ✅ | API preferred (v2) |
+| Firewall Rules | ✅ | ✅ | API preferred (v2) |
 | DHCP | ❌ | ✅ | PHP only (API planned) |
 | DNS | ❌ | ✅ | PHP only |
-| Firewall Aliases | ❌ | ✅ | PHP only |
-| Firewall Rules | ❌ | ✅ | PHP only |
 
 ### Module Organization
 
@@ -264,6 +328,33 @@ ansible-playbook tests/test-dhcp-pxe.yml
 # Test static mappings
 ansible-playbook tests/test-dhcp-static.yml
 ```
+
+## Implementation Notes
+
+### Firewall Management via REST API
+
+**Status**: ✅ Fully functional via REST API v2
+
+Firewall alias and rule management are implemented using the pfSense REST API v2, which provides reliable, idempotent configuration management.
+
+**Authentication**: Uses `X-API-Key` header for authentication
+**Endpoints**:
+- `/api/v2/firewall/alias` - Alias management (GET, POST, PATCH, DELETE)
+- `/api/v2/firewall/rule` - Rule management (GET, POST, PATCH, DELETE)
+
+**Key Features**:
+- Idempotent operations (check-then-create/update pattern)
+- Proper error handling with status codes
+- Support for all alias types (host, network, port)
+- Full rule configuration (protocols, sources, destinations, ports)
+
+See `docs/automation/pfsense-api-implementation-summary.md` for detailed implementation notes.
+
+### DHCP Management
+
+**Status**: ✅ Fully functional via PHP shell
+
+DHCP PXE boot and static mapping management work correctly using PHP shell methods. Future enhancement may migrate to REST API when endpoints become available.
 
 ## License
 

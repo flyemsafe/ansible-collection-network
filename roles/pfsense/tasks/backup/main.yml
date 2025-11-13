@@ -1,0 +1,84 @@
+---
+# ==============================================================================
+# pfSense Configuration Backup via API
+# ==============================================================================
+#
+# Downloads pfSense configuration backup via REST API
+# Saves XML configuration with timestamps
+# Creates symlinks to latest backups
+# Cleans up old backups based on retention policy
+#
+# ==============================================================================
+
+- name: Get current timestamp for backup
+  ansible.builtin.command: date +%Y-%m-%d_%H%M%S
+  delegate_to: localhost
+  register: _pfsense_timestamp_result
+  changed_when: false
+  run_once: true
+
+- name: Set backup filename
+  ansible.builtin.set_fact:
+    _pfsense_backup_timestamp: "{{ _pfsense_timestamp_result.stdout }}"
+    _pfsense_backup_filename: "{{ pfsense_backup_prefix }}-{{ _pfsense_timestamp_result.stdout }}.xml"
+
+- name: Ensure local backup directory exists
+  ansible.builtin.file:
+    path: "{{ pfsense_backup_dir }}"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+- name: Download pfSense configuration backup via API
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/system/config"
+    method: GET
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    dest: "{{ pfsense_backup_dir }}/{{ _pfsense_backup_filename }}"
+    status_code: [200]
+  delegate_to: localhost
+  register: _pfsense_backup_result
+
+- name: Get backup file size
+  ansible.builtin.stat:
+    path: "{{ pfsense_backup_dir }}/{{ _pfsense_backup_filename }}"
+  delegate_to: localhost
+  register: _pfsense_backup_stat
+
+- name: Create symlink to latest backup
+  ansible.builtin.file:
+    src: "{{ _pfsense_backup_filename }}"
+    dest: "{{ pfsense_backup_dir }}/latest.xml"
+    state: link
+    force: yes
+  delegate_to: localhost
+
+- name: Display backup information
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "pfSense Backup Complete"
+      - "========================================="
+      - "Device: {{ pfsense_hostname }}"
+      - "Timestamp: {{ _pfsense_backup_timestamp }}"
+      - "Backup file: {{ pfsense_backup_dir }}/{{ _pfsense_backup_filename }}"
+      - "File size: {{ (_pfsense_backup_stat.stat.size / 1024) | round(2) }} KB"
+      - "Latest symlink: {{ pfsense_backup_dir }}/latest.xml"
+      - ""
+      - "To restore this backup:"
+      - "  1. Log into pfSense web interface"
+      - "  2. Navigate to: Diagnostics → Backup & Restore"
+      - "  3. Upload and restore the XML file"
+      - ""
+      - "========================================="
+
+- name: Cleanup old backups (keep based on retention policy)
+  ansible.builtin.shell: |
+    find {{ pfsense_backup_dir }} -name "{{ pfsense_backup_prefix }}-*.xml" -type f -mtime +{{ pfsense_backup_retention_days }} -delete
+  delegate_to: localhost
+  changed_when: false
+  failed_when: false
+  when: pfsense_backup_retention_days > 0

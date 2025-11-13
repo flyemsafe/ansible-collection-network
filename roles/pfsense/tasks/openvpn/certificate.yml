@@ -1,0 +1,173 @@
+---
+# ==============================================================================
+# pfSense OpenVPN Certificate Management via API
+# ==============================================================================
+#
+# Updates OpenVPN server certificates to prevent expiration
+# Uses pfSense REST API v2 for all operations
+#
+# Requirements:
+# - pfsense_openvpn_server_name: Name of OpenVPN server to update
+# - pfsense_openvpn_certificate_name: Target certificate name
+# - pfsense_openvpn_expiration_threshold: Days before updating (default: 30)
+#
+# ==============================================================================
+
+- name: Get list of OpenVPN servers
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/vpn/openvpn/servers"
+    method: GET
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    status_code: [200]
+  register: _pfsense_openvpn_servers
+  delegate_to: localhost
+
+- name: Display current OpenVPN servers
+  ansible.builtin.debug:
+    msg:
+      - "OpenVPN Servers Found: {{ _pfsense_openvpn_servers.json.data | length }}"
+  when: pfsense_verbose | default(false)
+
+- name: Get current certificates
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/system/certificates"
+    method: GET
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    status_code: [200]
+  register: _pfsense_certificates
+  delegate_to: localhost
+
+- name: Find target certificate refid
+  ansible.builtin.set_fact:
+    _pfsense_target_cert_refid: "{{ _pfsense_certificates.json.data | selectattr('descr', 'equalto', pfsense_openvpn_certificate_name) | map(attribute='refid') | first }}"
+
+- name: Display target certificate information
+  ansible.builtin.debug:
+    msg:
+      - "Target Certificate: {{ pfsense_openvpn_certificate_name }}"
+      - "Target Certificate RefID: {{ _pfsense_target_cert_refid }}"
+
+- name: Find target OpenVPN server
+  ansible.builtin.set_fact:
+    _pfsense_target_server: "{{ _pfsense_openvpn_servers.json.data | selectattr('description', 'equalto', pfsense_openvpn_server_name) | first }}"
+
+- name: Display target server current configuration
+  ansible.builtin.debug:
+    msg:
+      - "Server Name: {{ _pfsense_target_server.description }}"
+      - "Current Certificate RefID: {{ _pfsense_target_server.certref }}"
+      - "Server ID: {{ _pfsense_target_server.vpnid }}"
+
+- name: Get current certificate details
+  ansible.builtin.set_fact:
+    _pfsense_current_cert: "{{ _pfsense_certificates.json.data | selectattr('refid', 'equalto', _pfsense_target_server.certref) | first }}"
+
+- name: Calculate days until certificate expiration
+  ansible.builtin.set_fact:
+    _pfsense_cert_not_after_epoch: "{{ (_pfsense_current_cert.not_after | int) if _pfsense_current_cert.not_after is defined else 0 }}"
+    _pfsense_current_epoch: "{{ ansible_date_time.epoch }}"
+
+- name: Set certificate expiration status
+  ansible.builtin.set_fact:
+    _pfsense_cert_days_left: "{{ ((_pfsense_cert_not_after_epoch | int - _pfsense_current_epoch | int) / 86400) | int }}"
+
+- name: Display certificate expiration status
+  ansible.builtin.debug:
+    msg:
+      - "Current Certificate: {{ _pfsense_current_cert.descr }}"
+      - "Days Until Expiration: {{ _pfsense_cert_days_left }}"
+      - "Status: {{ 'EXPIRED' if (_pfsense_cert_days_left | int) < 0 else ('EXPIRING SOON' if (_pfsense_cert_days_left | int) < pfsense_openvpn_expiration_threshold else 'VALID') }}"
+
+- name: Certificate needs update
+  when: (_pfsense_cert_days_left | int) < pfsense_openvpn_expiration_threshold
+  block:
+    - name: Confirm certificate update
+      ansible.builtin.pause:
+        prompt: |
+
+          ===========================================
+          OpenVPN Certificate Update Confirmation
+          ===========================================
+
+          Server: {{ pfsense_openvpn_server_name }}
+
+          Current Certificate:
+            Name: {{ _pfsense_current_cert.descr }}
+            RefID: {{ _pfsense_target_server.certref }}
+            Days Left: {{ _pfsense_cert_days_left }}
+            Status: {{ 'EXPIRED' if (_pfsense_cert_days_left | int) < 0 else 'VALID' }}
+
+          New Certificate:
+            Name: {{ pfsense_openvpn_certificate_name }}
+            RefID: {{ _pfsense_target_cert_refid }}
+
+          This will update the OpenVPN server certificate.
+          VPN clients may need to reconnect.
+
+          Press Enter to continue or Ctrl+C to abort
+      when: not (pfsense_auto_confirm | default(false) | bool)
+
+    - name: Update OpenVPN server certificate
+      ansible.builtin.uri:
+        url: "{{ pfsense_api_url }}/vpn/openvpn/server"
+        method: PATCH
+        headers:
+          X-API-Key: "{{ pfsense_api_key }}"
+        body_format: json
+        body:
+          id: "{{ _pfsense_target_server.id }}"
+          certref: "{{ _pfsense_target_cert_refid }}"
+        validate_certs: "{{ pfsense_validate_certs }}"
+        status_code: [200]
+      register: _pfsense_update_result
+      delegate_to: localhost
+
+    - name: Display update result
+      ansible.builtin.debug:
+        msg:
+          - "Certificate Update: SUCCESS"
+          - "Server: {{ pfsense_openvpn_server_name }}"
+          - "Old Certificate: {{ _pfsense_current_cert.descr }}"
+          - "New Certificate: {{ pfsense_openvpn_certificate_name }}"
+
+    - name: Display manual restart instructions
+      ansible.builtin.debug:
+        msg:
+          - "============================================"
+          - "Certificate Updated Successfully"
+          - "============================================"
+          - ""
+          - "⚠️  MANUAL ACTION REQUIRED"
+          - ""
+          - "The certificate has been updated but the OpenVPN service needs to be restarted."
+          - ""
+          - "Option 1 - Web GUI:"
+          - "  1. Log into pfSense web interface"
+          - "  2. Navigate to: VPN → OpenVPN → Servers"
+          - "  3. Click 'Restart openvpn service' button"
+          - ""
+          - "Option 2 - SSH:"
+          - "  ssh admin@{{ pfsense_api_url | regex_replace('https?://([^:]+):.*', '\\1') }}"
+          - "  pfSsh.php playback svc restart openvpn server {{ _pfsense_target_server.vpnid }}"
+          - ""
+          - "============================================"
+
+- name: Certificate already valid
+  ansible.builtin.debug:
+    msg:
+      - "============================================"
+      - "Certificate Status: VALID"
+      - "============================================"
+      - ""
+      - "Server: {{ pfsense_openvpn_server_name }}"
+      - "Current Certificate: {{ _pfsense_current_cert.descr }}"
+      - "Days Until Expiration: {{ _pfsense_cert_days_left }}"
+      - ""
+      - "No action needed. Certificate is valid for more than {{ pfsense_openvpn_expiration_threshold }} days."
+      - ""
+      - "============================================"
+  when: (_pfsense_cert_days_left | int) >= pfsense_openvpn_expiration_threshold

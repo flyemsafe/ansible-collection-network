@@ -1,0 +1,16 @@
+---
+# ==============================================================================
+# pfSense OpenVPN Management via API
+# ==============================================================================
+#
+# Manages OpenVPN servers and certificates
+#
+# ==============================================================================
+
+- name: Include OpenVPN certificate management tasks
+  ansible.builtin.include_tasks: certificate.yml
+  when: pfsense_manage_openvpn_certificates | bool
+  tags:
+    - pfsense
+    - pfsense_openvpn
+    - pfsense_openvpn_certificates

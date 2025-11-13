@@ -1,8 +1,8 @@
 ---
 # pfSense connection configuration
 # These should be overridden in inventory host_vars
-pfsense_api_url: ""  # Example: https://172.23.11.1/api/v1
-pfsense_api_key: ""  # Should be stored in vault
+pfsense_api_url: "https://{{ ansible_host }}:10443/api/v2"
+pfsense_api_key: "{{ network.pfsense.api_key | default('') }}"
 pfsense_hostname: "{{ inventory_hostname }}"
 pfsense_validate_certs: false
 
@@ -96,4 +96,27 @@ pfsense_manage_dhcp: false
 pfsense_manage_dns: false
 pfsense_manage_firewall: false
 pfsense_manage_haproxy: false
+pfsense_manage_openvpn: false
 pfsense_manage_backup: false
+
+# ==============================================================================
+# OpenVPN Management Configuration
+# ==============================================================================
+# OpenVPN certificate management
+pfsense_manage_openvpn_certificates: true  # Update certificates when enabled
+pfsense_openvpn_server_name: "LOCAL VPN TUNNEL"
+pfsense_openvpn_certificate_name: "rodhouse-dot-net-wildcard"
+pfsense_openvpn_expiration_threshold: 30  # Days before expiration to update
+
+# ==============================================================================
+# Backup Configuration
+# ==============================================================================
+pfsense_backup_dir: "/tmp/pfsense-backups"
+pfsense_backup_prefix: "{{ pfsense_hostname | default('pfsense') }}"
+pfsense_backup_retention_days: 30
+
+# ==============================================================================
+# General Settings
+# ==============================================================================
+pfsense_auto_confirm: false  # Set to true to skip confirmation prompts
+pfsense_verbose: false  # Enable verbose output for debugging

@@ -55,6 +55,11 @@
   ansible.builtin.include_tasks: haproxy/main.yml
   when: pfsense_manage_haproxy | bool
 
+# OpenVPN Management
+- name: Include OpenVPN management tasks
+  ansible.builtin.include_tasks: openvpn/main.yml
+  when: pfsense_manage_openvpn | bool
+
 # Backup Management
 - name: Include backup management tasks
   ansible.builtin.include_tasks: backup/main.yml
