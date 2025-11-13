@@ -1,0 +1,50 @@
+---
+# defaults file for rhdc.network.host_interfaces
+
+# Network provider (nm = NetworkManager, initscripts = legacy)
+rhdc_network_provider: nm
+
+# Allow NetworkManager restart if needed (e.g., for wireless plugins)
+rhdc_network_allow_restart: false
+
+# List of network interfaces to configure
+# Each interface should define:
+#   - name: Interface name (required)
+#   - purpose: Interface purpose - storage, management, ipmi (optional)
+#   - ip: IP address in CIDR notation (required for static)
+#   - state: up (default) or down
+#   - type: ethernet (default), bond, bridge, vlan
+#   - mtu: MTU size (default: 1500)
+#   - autoconnect: true (default) or false
+#   - gateway: Gateway IP (optional, omit for isolated networks)
+#   - dns: List of DNS servers (optional)
+#
+# Example:
+# rhdc_network_interfaces:
+#   - name: eno8
+#     purpose: storage
+#     ip: 172.23.13.4/24
+#     mtu: 9000
+#
+rhdc_network_interfaces: []
+
+# RHDC network presets - common configurations
+rhdc_network_presets:
+  storage:
+    network: 172.23.13.0/24
+    mtu: 9000
+    no_gateway: true
+    description: "10G storage network (VLAN 13)"
+
+  management:
+    network: 172.23.11.0/24
+    mtu: 1500
+    description: "Management network (VLAN 11)"
+
+  ipmi:
+    network: 172.23.10.0/24
+    mtu: 1500
+    description: "IPMI/BMC network (VLAN 10)"
+
+# Whether to remove undefined interfaces (default: false for safety)
+rhdc_network_remove_undefined: false

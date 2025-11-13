@@ -1,0 +1,70 @@
+---
+# tasks file for rhdc.network.host_interfaces
+
+- name: Validate rhdc_network_interfaces is defined
+  ansible.builtin.assert:
+    that:
+      - rhdc_network_interfaces is defined
+      - rhdc_network_interfaces is iterable
+    fail_msg: "rhdc_network_interfaces must be defined as a list"
+    success_msg: "rhdc_network_interfaces is properly defined"
+
+- name: Display interfaces to configure
+  ansible.builtin.debug:
+    msg: "Configuring {{ rhdc_network_interfaces | length }} network interface(s)"
+  when: rhdc_network_interfaces | length > 0
+
+- name: Transform RHDC interface definitions to network_connections format
+  ansible.builtin.set_fact:
+    network_connections: "{{ network_connections | default([]) + [connection_def] }}"
+  vars:
+    # Get preset configuration if purpose is defined
+    preset: "{{ rhdc_network_presets[item.purpose] | default({}) }}"
+
+    # Build connection definition
+    connection_def:
+      name: "{{ item.name }}"
+      interface_name: "{{ item.name }}"
+      type: "{{ item.type | default('ethernet') }}"
+      state: "{{ item.state | default('up') }}"
+      autoconnect: "{{ item.autoconnect | default(true) }}"
+      mtu: "{{ item.mtu | default(preset.mtu | default(1500)) }}"
+      ip:
+        # Static IP configuration
+        address: "{{ [item.ip] if item.ip is defined else omit }}"
+        # Gateway (omit if no_gateway preset or explicitly no gateway)
+        gateway4: "{{ omit if (preset.no_gateway | default(false)) or (item.no_gateway | default(false)) else (item.gateway | default(omit)) }}"
+        # DNS servers
+        dns: "{{ item.dns | default(omit) }}"
+        # DHCP disabled for static IPs
+        dhcp4: "{{ false if item.ip is defined else true }}"
+  loop: "{{ rhdc_network_interfaces }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: rhdc_network_interfaces | length > 0
+
+- name: Display transformed network_connections
+  ansible.builtin.debug:
+    var: network_connections
+    verbosity: 1
+  when: network_connections is defined
+
+- name: Configure network interfaces using linux_system_roles.network
+  ansible.builtin.include_role:
+    name: fedora.linux_system_roles.network
+  vars:
+    network_provider: "{{ rhdc_network_provider }}"
+    network_allow_restart: "{{ rhdc_network_allow_restart }}"
+  when: network_connections is defined and network_connections | length > 0
+
+- name: Display configuration summary
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Network Interface Configuration Complete"
+      - "=========================================="
+      - "Configured interfaces:"
+      - "{{ rhdc_network_interfaces | map(attribute='name') | list | join(', ') }}"
+      - ""
+      - "To verify: nmcli connection show"
+  when: rhdc_network_interfaces | length > 0
