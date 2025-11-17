@@ -1,0 +1,69 @@
+---
+# HAProxy Management Tasks
+#
+# This task file manages HAProxy configuration via pfSense REST API.
+# Supports backends, frontends, ACLs, and ACME certificate integration.
+#
+# Prerequisites:
+#   - pfSense REST API must be available and accessible
+#   - pfsense_api_url and pfsense_api_key must be configured
+#
+# Variables:
+#   - pfsense_haproxy_backends: List of backend configurations
+#   - pfsense_haproxy_frontends: List of frontend configurations
+#   - pfsense_acme_certificates: List of ACME certificates to issue
+#   - pfsense_acme_account: ACME account name (default: letsencrypt_production)
+#   - pfsense_acme_email: Email for ACME registration (required for new accounts)
+
+- name: Validate HAProxy configuration prerequisites
+  ansible.builtin.assert:
+    that:
+      - _pfsense_api_available is defined
+      - _pfsense_api_available | bool
+    fail_msg: "HAProxy management requires pfSense REST API to be available"
+    quiet: true
+
+- name: Display HAProxy configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "HAProxy Configuration Summary:"
+      - "  Backends to configure: {{ pfsense_haproxy_backends | length }}"
+      - "  Frontends to configure: {{ pfsense_haproxy_frontends | length }}"
+      - "  ACME certificates to manage: {{ pfsense_acme_certificates | length }}"
+  when: ansible_verbosity >= 1
+
+# ACME Certificate Management (must be done before frontend configuration)
+- name: Include ACME certificate management tasks
+  ansible.builtin.include_tasks: acme.yml
+  when:
+    - pfsense_acme_certificates is defined
+    - pfsense_acme_certificates | length > 0
+
+# Backend Configuration
+- name: Include HAProxy backend configuration tasks
+  ansible.builtin.include_tasks: backend.yml
+  loop: "{{ pfsense_haproxy_backends }}"
+  loop_control:
+    loop_var: backend
+    label: "{{ backend.name }}"
+  when:
+    - pfsense_haproxy_backends is defined
+    - pfsense_haproxy_backends | length > 0
+
+# Frontend Configuration (depends on backends and certificates)
+- name: Include HAProxy frontend configuration tasks
+  ansible.builtin.include_tasks: frontend.yml
+  loop: "{{ pfsense_haproxy_frontends }}"
+  loop_control:
+    loop_var: frontend
+    label: "{{ frontend.name }}"
+  when:
+    - pfsense_haproxy_frontends is defined
+    - pfsense_haproxy_frontends | length > 0
+
+# Apply Configuration Changes
+- name: Apply HAProxy configuration
+  ansible.builtin.include_tasks: apply.yml
+  when: >
+    (pfsense_haproxy_backends | length > 0) or
+    (pfsense_haproxy_frontends | length > 0)

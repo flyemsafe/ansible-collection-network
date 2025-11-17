@@ -1,0 +1,31 @@
+---
+# Apply HAProxy Configuration Changes
+#
+# This task applies all HAProxy configuration changes and reloads the service.
+# Should be called after all backend, frontend, and ACME configuration is complete.
+#
+# The apply operation:
+#   1. Validates the HAProxy configuration
+#   2. Generates the HAProxy config file
+#   3. Reloads the HAProxy service
+#
+# Variables: None (uses API to apply all pending changes)
+
+- name: Apply HAProxy configuration changes
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/haproxy/apply"
+    method: POST
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    status_code: [200, 201]
+  register: _haproxy_apply
+  changed_when: true
+
+- name: Display HAProxy apply result
+  ansible.builtin.debug:
+    msg:
+      - "HAProxy configuration applied successfully"
+      - "HAProxy service reloaded"
+      - "All backends, frontends, and ACLs are now active"
+  when: ansible_verbosity >= 0

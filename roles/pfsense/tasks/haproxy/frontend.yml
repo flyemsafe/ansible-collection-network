@@ -1,0 +1,219 @@
+---
+# Configure HAProxy Frontend via REST API
+#
+# This task creates or updates a HAProxy frontend using the pfSense REST API.
+# Frontends define listening addresses and route traffic to backends via ACLs.
+#
+# Variables required (from frontend loop variable):
+#   - name:         Frontend name (used for idempotency)
+#   - bind:         Bind address and port (e.g., "0.0.0.0:443")
+#
+# Variables optional:
+#   - mode:         "http" or "tcp" (default: "http")
+#   - ssl:          Enable SSL/TLS (default: false)
+#   - certificate:  SSL certificate name from pfSense (required if ssl: true)
+#   - default_backend: Default backend name (optional)
+#   - acls:         List of ACL definitions for routing
+#     - name:       ACL name
+#     - expression: ACL expression type (e.g., "hdr(host)", "path_beg")
+#     - value:      ACL match value
+#   - actions:      List of routing actions based on ACL conditions
+#     - condition:  ACL name to match
+#     - backend:    Backend name to route to
+
+- name: Display frontend configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring HAProxy frontend via API: {{ frontend.name }}"
+      - "Bind: {{ frontend.bind }}"
+      - "Mode: {{ frontend.mode | default('http') }}"
+      - "SSL: {{ frontend.ssl | default(false) }}"
+      - "ACLs: {{ frontend.acls | default([]) | length }}"
+      - "Actions: {{ frontend.actions | default([]) | length }}"
+  when: ansible_verbosity >= 1
+
+# Validate SSL configuration
+- name: Validate SSL certificate is specified when SSL is enabled
+  ansible.builtin.assert:
+    that:
+      - frontend.certificate is defined
+      - frontend.certificate | length > 0
+    fail_msg: "SSL certificate must be specified when ssl: true"
+    quiet: true
+  when:
+    - frontend.ssl is defined
+    - frontend.ssl | bool
+
+# Prepare frontend configuration body
+- name: Prepare frontend configuration
+  ansible.builtin.set_fact:
+    _frontend_config:
+      name: "{{ frontend.name }}"
+      bind: "{{ frontend.bind }}"
+      mode: "{{ frontend.mode | default('http') }}"
+      ssl: "{{ frontend.ssl | default(false) }}"
+      sslcert: "{{ frontend.certificate if (frontend.ssl | default(false)) else omit }}"
+      default_backend: "{{ frontend.default_backend | default(omit) }}"
+      acls: "{{ frontend.acls | default([]) }}"
+      actions: "{{ frontend.actions | default([]) }}"
+
+# Try to create frontend with POST
+- name: Try to create HAProxy frontend
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/haproxy/frontend"
+    method: POST
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ _frontend_config }}"
+    status_code: [200, 201, 400]
+  register: _frontend_create_result
+  failed_when: false
+
+# Extract ID from error message if frontend exists
+- name: Extract frontend ID from error
+  ansible.builtin.set_fact:
+    _frontend_id: "{{ _frontend_create_result.json.message | regex_search('ID `(\\d+)`', '\\1') | first }}"
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+
+# If frontend already exists, GET it first to merge ACLs and actions
+- name: Get existing HAProxy frontend configuration
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/haproxy/frontend?id={{ _frontend_id }}"
+    method: GET
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    status_code: [200]
+  register: _frontend_get_result
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Initialize normalized lists
+- name: Initialize normalized ACLs and actions lists
+  ansible.builtin.set_fact:
+    _normalized_acls: []
+    _normalized_actions: []
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Get the highest existing ACL ID to avoid conflicts
+- name: Get highest existing ACL ID
+  ansible.builtin.set_fact:
+    _max_acl_id: "{{ (_frontend_get_result.json.data.ha_acls | map(attribute='id') | max | default(-1)) }}"
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Normalize new ACLs to match API structure (add required fields with unique IDs)
+- name: Normalize ACLs with required fields
+  ansible.builtin.set_fact:
+    _normalized_acls: >-
+      {{ _normalized_acls + [item | combine({
+           'id': (_max_acl_id | int) + 1 + my_idx,
+           'parent_id': _frontend_id | int,
+           'casesensitive': false,
+           'not': false
+         })] }}
+  loop: "{{ frontend.acls | default([]) }}"
+  loop_control:
+    index_var: my_idx
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Get the highest existing action ID to avoid conflicts
+- name: Get highest existing action ID
+  ansible.builtin.set_fact:
+    _max_action_id: "{{ (_frontend_get_result.json.data.a_actionitems | map(attribute='id') | max | default(-1)) }}"
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Normalize new actions to match API structure (condition→acl, add required fields with unique IDs)
+- name: Normalize actions to API format
+  ansible.builtin.set_fact:
+    _normalized_actions: >-
+      {{ _normalized_actions + [{
+           'id': (_max_action_id | int) + 1 + my_idx,
+           'parent_id': _frontend_id | int,
+           'action': 'use_backend',
+           'acl': item.condition | default(item.acl),
+           'backend': item.backend,
+           'customaction': None,
+           'deny_status': None,
+           'find': None,
+           'fmt': None,
+           'lua_function': None,
+           'name': None,
+           'path': None,
+           'realm': None,
+           'reason': None,
+           'replace': None,
+           'rule': None,
+           'status': None
+         }] }}
+  loop: "{{ frontend.actions | default([]) }}"
+  loop_control:
+    index_var: my_idx
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Merge new ACLs and actions with existing ones
+- name: Merge new ACLs with existing ones
+  ansible.builtin.set_fact:
+    _merged_acls: "{{ (_frontend_get_result.json.data.ha_acls | default([]))  + (_normalized_acls | default([])) }}"
+    _merged_actions: "{{ (_frontend_get_result.json.data.a_actionitems | default([]))  + (_normalized_actions | default([])) }}"
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Update frontend with merged configuration
+- name: Update existing HAProxy frontend
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/haproxy/frontend?name={{ frontend.name | urlencode }}"
+    method: PATCH
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ _frontend_config | combine({'id': _frontend_id | int, 'ha_acls': _merged_acls, 'a_actionitems': _merged_actions}) }}"
+    status_code: [200, 201]
+  register: _frontend_update_result
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+
+# Set result based on which operation succeeded
+- name: Set frontend result
+  ansible.builtin.set_fact:
+    _frontend_result: "{{ _frontend_update_result if _frontend_update_result is defined and not _frontend_update_result.skipped | default(true) else _frontend_create_result }}"
+    _frontend_action: "{{ 'UPDATED' if _frontend_update_result is defined and not _frontend_update_result.skipped | default(true) else 'CREATED' }}"
+
+- name: Display frontend configuration result
+  ansible.builtin.debug:
+    msg:
+      - "HAProxy frontend configuration: SUCCESS"
+      - "Frontend: {{ frontend.name }}"
+      - "Action: {{ _frontend_action }}"
+      - "Bind: {{ frontend.bind }}"
+      - "SSL: {{ frontend.ssl | default(false) }}"
+      - "ACLs configured: {{ frontend.acls | default([]) | length }}"
+      - "Routing actions: {{ frontend.actions | default([]) | length }}"
+  when: ansible_verbosity >= 0

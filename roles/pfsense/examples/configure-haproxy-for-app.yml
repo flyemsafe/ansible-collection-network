@@ -1,0 +1,96 @@
+---
+# Example: Deploy HAProxy HTTPS Reverse Proxy for Container Apps
+#
+# This playbook demonstrates how to configure HAProxy with ACME certificates
+# for a containerized application using the pfSense role.
+#
+# Use Case: rhdc-inventory running on tuareg.lab.rodhouse.net:8081
+# Goal: Provide HTTPS access via inventory.lab.rodhouse.net
+#
+# Prerequisites:
+#   - pfSense REST API installed and accessible
+#   - pfSense API key stored in vault (vault_pfsense_api_key)
+#   - Container app running and accessible from pfSense
+#   - DNS A record pointing hostname to pfSense IP
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts examples/configure-haproxy-for-app.yml
+
+- name: Configure HAProxy for rhdc-inventory
+  hosts: hausa
+  gather_facts: false
+
+  vars:
+    # Application details
+    app_name: "rhdc-inventory"
+    app_hostname: "inventory.lab.rodhouse.net"
+    backend_host: "172.23.11.5"  # tuareg IP
+    backend_port: 8081
+
+    # ACME configuration
+    pfsense_acme_email: "{{ admin_email_addr }}"
+
+    # HAProxy backend configuration
+    pfsense_haproxy_backends:
+      - name: "{{ app_name }}_backend"
+        mode: "http"
+        balance: "roundrobin"
+        connection_timeout: 30000
+        server_timeout: 30000
+        check_type: "HTTP"
+        httpcheck_method: "GET"
+        monitor_uri: "/api/health"  # Change to your app's health endpoint
+        servers:
+          - name: "tuareg"
+            address: "{{ backend_host }}"
+            port: "{{ backend_port }}"
+            ssl: false
+            check_inter: 2000
+
+    # HAProxy frontend configuration
+    # NOTE: Always use the shared rhdc_https_frontend for all RHDC apps
+    pfsense_haproxy_frontends:
+      - name: "rhdc_https_frontend"  # Shared RHDC frontend
+        bind: "0.0.0.0:443"
+        mode: "http"
+        ssl: true
+        certificate: "{{ app_name }}_cert"
+        acls:
+          - name: "is_{{ app_name | replace('-', '_') }}"
+            expression: "hdr(host)"
+            value: "{{ app_hostname }}"
+        actions:
+          - condition: "is_{{ app_name | replace('-', '_') }}"
+            backend: "{{ app_name }}_backend"
+
+    # ACME certificate configuration
+    pfsense_acme_certificates:
+      - name: "{{ app_name }}_cert"
+        domains:
+          - domain: "{{ app_hostname }}"
+            method: "http01"  # Use HTTP-01 challenge for single domain
+        renewafter: 60
+
+    # Enable HAProxy management
+    pfsense_manage_haproxy: true
+
+  roles:
+    - role: pfsense
+
+  post_tasks:
+    - name: Display configuration summary
+      ansible.builtin.debug:
+        msg:
+          - "✅ HAProxy HTTPS configuration complete!"
+          - ""
+          - "Application: {{ app_name }}"
+          - "Public URL: https://{{ app_hostname }}"
+          - "Backend: {{ backend_host }}:{{ backend_port }}"
+          - ""
+          - "ACME Certificate: {{ app_name }}_cert"
+          - "Auto-renewal: {{ pfsense_acme_certificates[0].renewafter }} days before expiry"
+          - ""
+          - "Next steps:"
+          - "  1. Verify DNS: dig {{ app_hostname }}"
+          - "  2. Test HTTPS: curl -v https://{{ app_hostname }}"
+          - "  3. Check certificate: curl -vI https://{{ app_hostname }} 2>&1 | grep 'subject:'"

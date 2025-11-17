@@ -87,9 +87,83 @@ pfsense_firewall_rules: []
 #     destination: "(self)"
 #     destination_port: "22"
 
-# HAProxy configuration
+# ==============================================================================
+# HAProxy & ACME Configuration
+# ==============================================================================
+# HAProxy backend configuration
 pfsense_haproxy_backends: []
+# Example:
+# pfsense_haproxy_backends:
+#   - name: "rhdc_inventory"
+#     mode: "http"
+#     balance: "roundrobin"
+#     connection_timeout: 30000
+#     server_timeout: 30000
+#     check_type: "HTTP"
+#     httpcheck_method: "GET"
+#     monitor_uri: "/health"
+#     servers:
+#       - name: "tuareg"
+#         address: "172.23.11.5"
+#         port: 8081
+#         ssl: false
+#         check_inter: 2000
+#
+#   - name: "pfsense_gui"
+#     mode: "http"
+#     balance: "source"
+#     connection_timeout: 30000
+#     server_timeout: 30000
+#     check_type: "SSL"
+#     servers:
+#       - name: "pfsense_local"
+#         address: "127.0.0.1"
+#         port: 10443
+#         ssl: true
+#         ssl_verify: false
+
+# HAProxy frontend configuration
+# NOTE: Use "rhdc_https_frontend" as the standard shared frontend for all RHDC apps
+# This frontend already exists on pfSense and handles multiple applications
+pfsense_haproxy_frontend_name: "rhdc_https_frontend"
 pfsense_haproxy_frontends: []
+# Example:
+# pfsense_haproxy_frontends:
+#   - name: "rhdc_https_frontend"  # Use the shared RHDC frontend
+#     bind: "0.0.0.0:443"
+#     mode: "http"
+#     ssl: true
+#     certificate: "lab_wildcard"
+#     acls:
+#       - name: "is_inventory"
+#         expression: "hdr(host)"
+#         value: "inventory.lab.rodhouse.net"
+#       - name: "is_pfsense"
+#         expression: "hdr(host)"
+#         value: "hausa.lab.rodhouse.net"
+#     actions:
+#       - condition: "is_inventory"
+#         backend: "rhdc_inventory"
+#       - condition: "is_pfsense"
+#         backend: "pfsense_gui"
+
+# ACME certificate configuration
+pfsense_acme_account: "letsencrypt_production"
+pfsense_acme_email: ""  # Required for ACME registration
+pfsense_acme_certificates: []
+# Example:
+# pfsense_acme_certificates:
+#   - name: "lab_wildcard"
+#     domains:
+#       - domain: "*.lab.rodhouse.net"
+#         method: "dns01"  # Requires DNS provider integration
+#     renewafter: 60  # Days before expiry to renew
+#
+#   - name: "inventory_cert"
+#     domains:
+#       - domain: "inventory.lab.rodhouse.net"
+#         method: "http01"  # HTTP-01 challenge
+#     renewafter: 60
 
 # Feature flags
 pfsense_manage_dhcp: false

@@ -1,0 +1,134 @@
+---
+# Configure HAProxy Backend via REST API
+#
+# This task creates or updates a HAProxy backend using the pfSense REST API.
+# Backends define server pools that frontends can route traffic to.
+#
+# Variables required (from backend loop variable):
+#   - name:               Backend name (used for idempotency)
+#   - servers:            List of backend servers
+#     - name:             Server name
+#     - address:          Server IP address or hostname
+#     - port:             Server port
+#
+# Variables optional:
+#   - mode:               "http" or "tcp" (default: "http")
+#   - balance:            Load balancing algorithm: "roundrobin", "source", "leastconn" (default: "roundrobin")
+#   - connection_timeout: Connection timeout in milliseconds (default: 30000)
+#   - server_timeout:     Server timeout in milliseconds (default: 30000)
+#   - check_type:         Health check type: "HTTP", "SSL", "TCP" (default: "HTTP")
+#   - httpcheck_method:   HTTP check method: "GET", "POST", "HEAD" (default: "GET")
+#   - monitor_uri:        URI for HTTP health checks (default: "/")
+#   - ssl:                Enable SSL for backend connections (default: false)
+
+- name: Display backend configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring HAProxy backend via API: {{ backend.name }}"
+      - "Mode: {{ backend.mode | default('http') }}"
+      - "Balance: {{ backend.balance | default('roundrobin') }}"
+      - "Servers: {{ backend.servers | length }}"
+  when: ansible_verbosity >= 1
+
+# No need to check if backend exists - we'll try POST and fall back to PATCH if it exists
+
+# Initialize empty servers list
+- name: Initialize servers list
+  ansible.builtin.set_fact:
+    _backend_servers: []
+
+# Build servers list with correct types (port as string, check_inter as integer)
+- name: Add server to backend with correct types
+  ansible.builtin.set_fact:
+    _backend_servers: "{{ _backend_servers + [server_entry] }}"
+  vars:
+    server_entry:
+      name: "{{ item.name }}"
+      address: "{{ item.address }}"
+      port: "{{ item.port | string }}"
+      ssl: "{{ item.ssl | default(false) }}"
+      advanced: "check inter {{ item.check_inter | default(2000) }}ms"
+      check_inter: "{{ item.check_inter | default(2000) | int }}"
+  loop: "{{ backend.servers }}"
+  loop_control:
+    loop_var: item
+
+# Build backend configuration with proper types
+- name: Prepare backend configuration
+  ansible.builtin.set_fact:
+    _backend_config: >-
+      {
+        "name": "{{ backend.name }}",
+        "mode": "{{ backend.mode | default('http') }}",
+        "balance": "{{ backend.balance | default('roundrobin') }}",
+        "connection_timeout": {{ backend.connection_timeout | default(30000) }},
+        "server_timeout": {{ backend.server_timeout | default(30000) }},
+        "check_type": "{{ backend.check_type | default('HTTP') }}",
+        {% if backend.check_type | default('HTTP') == 'HTTP' %}
+        "httpcheck_method": "{{ backend.httpcheck_method | default('GET') }}",
+        "monitor_uri": "{{ backend.monitor_uri | default('/') }}",
+        {% endif %}
+        "log_checks": {{ backend.log_checks | default(true) | lower }},
+        "servers": {{ _backend_servers | to_json }}
+      }
+
+- name: Debug backend configuration
+  ansible.builtin.debug:
+    var: _backend_config
+  when: ansible_verbosity >= 1
+
+# Try to create backend with POST
+- name: Try to create HAProxy backend
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/haproxy/backend"
+    method: POST
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ _backend_config }}"
+    status_code: [200, 201, 400]
+  register: _backend_create_result
+  failed_when: false
+
+# Extract ID from error message if backend exists
+- name: Extract backend ID from error
+  ansible.builtin.set_fact:
+    _backend_id: "{{ _backend_create_result.json.message | regex_search('ID `(\\d+)`', '\\1') | first }}"
+  when:
+    - _backend_create_result.status == 400
+    - _backend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+
+# If backend already exists, update it with PATCH
+- name: Update existing HAProxy backend
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url}}/services/haproxy/backend?name={{ backend.name | urlencode }}"
+    method: PATCH
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ _backend_config | combine({'id': _backend_id | int}) }}"
+    status_code: [200, 201]
+  register: _backend_update_result
+  when:
+    - _backend_create_result.status == 400
+    - _backend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _backend_id is defined
+
+# Set result based on which operation succeeded
+- name: Set backend result
+  ansible.builtin.set_fact:
+    _backend_result: "{{ _backend_update_result if _backend_update_result is defined and not _backend_update_result.skipped | default(true) else _backend_create_result }}"
+    _backend_action: "{{ 'UPDATED' if _backend_update_result is defined and not _backend_update_result.skipped | default(true) else 'CREATED' }}"
+
+- name: Display backend configuration result
+  ansible.builtin.debug:
+    msg:
+      - "HAProxy backend configuration: SUCCESS"
+      - "Backend: {{ backend.name }}"
+      - "Action: {{ _backend_action }}"
+      - "Servers configured: {{ backend.servers | length }}"
+  when: ansible_verbosity >= 0

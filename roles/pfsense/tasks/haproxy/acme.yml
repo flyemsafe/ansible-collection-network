@@ -1,0 +1,71 @@
+---
+# Configure ACME Certificates via REST API
+#
+# This task manages ACME (Let's Encrypt) certificates using the pfSense REST API.
+# Certificates are automatically issued and can be configured for auto-renewal.
+#
+# Prerequisites:
+#   - ACME account must be registered in pfSense
+#   - DNS provider must be configured for DNS-01 challenges (if using wildcards)
+#   - HTTP server must be accessible for HTTP-01 challenges
+#
+# Variables required:
+#   - pfsense_acme_certificates: List of certificate configurations
+#   - pfsense_acme_account:      ACME account name (default: letsencrypt_production)
+#
+# Variables optional:
+#   - pfsense_acme_email:        Email for ACME account registration
+
+- name: Display ACME configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "ACME Certificate Management:"
+      - "  Account: {{ pfsense_acme_account }}"
+      - "  Certificates to manage: {{ pfsense_acme_certificates | length }}"
+  when: ansible_verbosity >= 1
+
+# Register ACME account if email is provided
+- name: Check if ACME account exists
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/acme/account?name={{ pfsense_acme_account | urlencode }}"
+    method: GET
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    status_code: [200, 404]
+  register: _acme_account_check
+  failed_when: false
+
+- name: Register ACME account
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/acme/account_key/register"
+    method: POST
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body:
+      name: "{{ pfsense_acme_account }}"
+      email: "{{ pfsense_acme_email }}"
+    status_code: [200, 201]
+  register: _acme_account_result
+  when:
+    - _acme_account_check.status == 404
+    - pfsense_acme_email is defined
+    - pfsense_acme_email | length > 0
+
+- name: Display ACME account status
+  ansible.builtin.debug:
+    msg:
+      - "ACME Account: {{ 'ALREADY REGISTERED' if _acme_account_check.status == 200 else 'NEWLY REGISTERED' }}"
+      - "Account name: {{ pfsense_acme_account }}"
+  when: ansible_verbosity >= 0
+
+# Configure each certificate
+- name: Configure ACME certificates
+  ansible.builtin.include_tasks: acme_certificate.yml
+  loop: "{{ pfsense_acme_certificates }}"
+  loop_control:
+    loop_var: certificate
+    label: "{{ certificate.name }}"
