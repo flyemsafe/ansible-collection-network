@@ -22,8 +22,8 @@
 
 - name: Store authentication cookie
   ansible.builtin.set_fact:
-    unifi_auth_cookie: "{{ unifi_login_result.set_cookie }}"
-    unifi_auth_time: "{{ ansible_date_time.epoch }}"
+    unifi_auth_cookie: "{{ unifi_login_result.cookies_string | default(unifi_login_result.cookies | dict2items | map(attribute='key') | zip(unifi_login_result.cookies | dict2items | map(attribute='value')) | map('join', '=') | join('; ')) }}"
+    unifi_auth_time: "{{ lookup('pipe', 'date +%s') }}"
   no_log: true
 
 - name: Get UniFi sites
@@ -39,6 +39,7 @@
 - name: Set active site
   ansible.builtin.set_fact:
     unifi_active_site: "{{ (unifi_sites_result.json.data | selectattr('desc', 'equalto', 'Rodhouse') | first).name | default(unifi_site) }}"
+    unifi_site: "{{ (unifi_sites_result.json.data | selectattr('desc', 'equalto', 'Rodhouse') | first).name | default(unifi_site) }}"
 
 - name: Display authentication status
   ansible.builtin.debug:
