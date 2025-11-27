@@ -5,7 +5,8 @@ Ansible role for managing UniFi Network infrastructure via the UniFi Controller 
 ## Description
 
 This role provides automation for UniFi network infrastructure management, including:
-- Switch port VLAN configuration
+- Switch port VLAN configuration (access ports - single VLAN)
+- Trunk port configuration (multiple tagged VLANs)
 - Network/VLAN management
 - Infrastructure querying and discovery
 - Wireless network configuration
@@ -43,7 +44,7 @@ unifi_validate_certs: false                        # SSL certificate validation
 ### Action Selection
 
 ```yaml
-unifi_action: "query"  # Options: query, switch_port, network
+unifi_action: "query"  # Options: query, switch_port, trunk_port, network
 ```
 
 ### Switch Port Configuration
@@ -57,6 +58,23 @@ unifi_switch_port_network_id: "xyz789"     # Network configuration ID
 unifi_switch_port_name: "Server Port"      # Optional: Port label
 unifi_switch_port_profile_id: "profile1"   # Optional: Port profile ID
 unifi_switch_port_security: false          # Optional: Port security
+```
+
+### Trunk Port Configuration (Multiple VLANs)
+
+When `unifi_action: "trunk_port"`:
+
+```yaml
+unifi_switch_device_id: "abc123def456"           # UniFi device ID
+unifi_switch_port_idx: 24                         # Port number (1-based)
+unifi_trunk_port_native_network_id: "xyz789"     # Native/untagged VLAN network ID
+unifi_trunk_port_tagged_network_ids:             # Tagged VLAN network IDs
+  - "abc123"
+  - "def456"
+  - "ghi789"
+unifi_switch_port_name: "Trunk to kvmzfs01"      # Optional: Port label
+unifi_switch_port_profile_id: "profile1"         # Optional: Port profile ID
+unifi_switch_port_security: false                # Optional: Port security
 ```
 
 ## Dependencies
@@ -117,6 +135,52 @@ None
         unifi_switch_port_idx: 2
         unifi_switch_port_network_id: "{{ vl12_network_id }}"
         unifi_switch_port_name: "tazama - VL12_SERVER"
+```
+
+### Configure Trunk Port (Multiple VLANs)
+
+```yaml
+---
+- name: Configure trunk port for kvmzfs01
+  hosts: localhost
+  gather_facts: false
+
+  tasks:
+    # Query UniFi for network IDs
+    - name: Query UniFi infrastructure
+      ansible.builtin.include_role:
+        name: rhdc.network.unifi
+      vars:
+        unifi_action: "query"
+
+    # Get network IDs for VLANs 10-60
+    - name: Build list of tagged VLAN network IDs
+      ansible.builtin.set_fact:
+        tagged_vlan_ids: "{{ unifi_query_results.networks
+          | selectattr('name', 'in', ['VL10_MGMT', 'VL11_LAB', 'VL12_SERVER', 'VL20_STORAGE', 'VL30_DMZ', 'VL40_IOT', 'VL50_GUEST', 'VL60_ISOLATED'])
+          | map(attribute='_id') | list }}"
+
+    # Get native VLAN network ID (VLAN 10)
+    - name: Find VL10_MGMT network ID for native VLAN
+      ansible.builtin.set_fact:
+        native_vlan_id: "{{ (unifi_query_results.networks | selectattr('name', 'equalto', 'VL10_MGMT') | first)._id }}"
+
+    # Get switch device ID
+    - name: Find USW-Pro-24 device ID
+      ansible.builtin.set_fact:
+        switch_device_id: "{{ (unifi_query_results.switches | selectattr('name', 'equalto', 'USW-Pro-24') | first)._id }}"
+
+    # Configure trunk port
+    - name: Configure port 24 as trunk (VLANs 10-60)
+      ansible.builtin.include_role:
+        name: rhdc.network.unifi
+      vars:
+        unifi_action: "trunk_port"
+        unifi_switch_device_id: "{{ switch_device_id }}"
+        unifi_switch_port_idx: 24
+        unifi_trunk_port_native_network_id: "{{ native_vlan_id }}"
+        unifi_trunk_port_tagged_network_ids: "{{ tagged_vlan_ids }}"
+        unifi_switch_port_name: "Trunk to kvmzfs01"
 ```
 
 ## Usage
@@ -181,7 +245,8 @@ This role interacts with the following UniFi Controller API endpoints:
 - `unifi` - All tasks
 - `unifi:auth` - Authentication only
 - `unifi:query` - Infrastructure querying
-- `unifi:switch_port` - Switch port configuration
+- `unifi:switch_port` - Switch port configuration (access ports)
+- `unifi:trunk_port` - Trunk port configuration (multiple VLANs)
 - `unifi:network` - Network management
 - `unifi:logout` - Session cleanup
 

@@ -26,6 +26,11 @@
   when: unifi_action == "switch_port"
   tags: ['unifi', 'switch_port']
 
+- name: Configure trunk port (multiple VLANs)
+  ansible.builtin.include_tasks: trunk_port.yml
+  when: unifi_action == "trunk_port"
+  tags: ['unifi', 'trunk_port']
+
 - name: Manage networks/VLANs
   ansible.builtin.include_tasks: network.yml
   when: unifi_action == "network"

@@ -1,0 +1,82 @@
+---
+# ==============================================================================
+# UniFi Switch Trunk Port Configuration (Multiple VLANs)
+# ==============================================================================
+
+- name: Validate trunk port configuration variables
+  ansible.builtin.assert:
+    that:
+      - unifi_switch_device_id is defined and unifi_switch_device_id != ""
+      - unifi_switch_port_idx is defined and unifi_switch_port_idx != ""
+      - unifi_trunk_port_native_network_id is defined and unifi_trunk_port_native_network_id != ""
+      - unifi_trunk_port_tagged_network_ids is defined
+      - unifi_trunk_port_tagged_network_ids | length > 0
+    fail_msg: "Switch device_id, port_idx, native_network_id, and tagged_network_ids must be provided"
+
+- name: Get current switch configuration
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}/api/s/{{ unifi_active_site }}/rest/device/{{ unifi_switch_device_id }}"
+    method: GET
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_switch_current
+
+- name: Display current port configuration
+  ansible.builtin.debug:
+    msg:
+      - "Current configuration for port {{ unifi_switch_port_idx }}:"
+      - "{{ unifi_switch_current.json.data[0].port_overrides | selectattr('port_idx', 'equalto', unifi_switch_port_idx | int) | list | first | default({}) }}"
+  when: not ansible_check_mode
+
+- name: Build trunk port override configuration
+  ansible.builtin.set_fact:
+    unifi_trunk_port_override:
+      port_idx: "{{ unifi_switch_port_idx | int }}"
+      portconf_id: "{{ unifi_switch_port_profile_id | default(omit) }}"
+      name: "{{ unifi_switch_port_name | default(omit) }}"
+      port_security_enabled: "{{ unifi_switch_port_security | default(false) }}"
+      native_networkconf_id: "{{ unifi_trunk_port_native_network_id }}"
+      tagged_networkconf_ids: "{{ unifi_trunk_port_tagged_network_ids }}"
+
+- name: Get existing port overrides
+  ansible.builtin.set_fact:
+    unifi_existing_overrides: "{{ unifi_switch_current.json.data[0].port_overrides | default([]) }}"
+
+- name: Remove existing override for this port
+  ansible.builtin.set_fact:
+    unifi_updated_overrides: "{{ unifi_existing_overrides | rejectattr('port_idx', 'equalto', unifi_switch_port_idx | int) | list }}"
+
+- name: Add new trunk port override
+  ansible.builtin.set_fact:
+    unifi_updated_overrides: "{{ unifi_updated_overrides + [unifi_trunk_port_override] }}"
+
+- name: Update switch trunk port configuration
+  ansible.builtin.uri:
+    url: "{{ unifi_controller_url }}/api/s/{{ unifi_active_site }}/rest/device/{{ unifi_switch_device_id }}"
+    method: PUT
+    body:
+      port_overrides: "{{ unifi_updated_overrides }}"
+    body_format: json
+    validate_certs: "{{ unifi_validate_certs }}"
+    headers:
+      Cookie: "{{ unifi_auth_cookie }}"
+    status_code: [200]
+  register: unifi_trunk_port_update_result
+  when: not ansible_check_mode
+
+- name: Display trunk port update result
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "✅ Trunk Port Updated Successfully"
+      - "========================================="
+      - "Switch Device ID: {{ unifi_switch_device_id }}"
+      - "Port: {{ unifi_switch_port_idx }}"
+      - "Native VLAN Network ID: {{ unifi_trunk_port_native_network_id }}"
+      - "Tagged VLAN Network IDs: {{ unifi_trunk_port_tagged_network_ids | join(', ') }}"
+      - "Port Name: {{ unifi_switch_port_name | default('Not set') }}"
+  when:
+    - not ansible_check_mode
+    - unifi_trunk_port_update_result is success

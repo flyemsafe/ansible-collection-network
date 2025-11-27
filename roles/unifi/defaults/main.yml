@@ -32,6 +32,10 @@ unifi_switch_port_idx: ""  # Port number (1-based)
 unifi_switch_port_vlan: ""  # VLAN ID to assign
 unifi_switch_port_network_id: ""  # Network conf ID to assign
 
+# Trunk Port Configuration
+unifi_trunk_port_native_network_id: ""  # Native VLAN network ID (untagged)
+unifi_trunk_port_tagged_network_ids: []  # List of tagged VLAN network IDs
+
 # Retry Logic
 unifi_retry_count: 3
 unifi_retry_delay: 5
