@@ -1,0 +1,44 @@
+---
+# rhdc.network.vlan_bridge main tasks
+# Copyright: (c) 2025, Rodrique Heron <rheron@redhat.com>
+# Apache License 2.0
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - rhdc_network_vlan_bridges is defined
+      - rhdc_network_vlan_bridges | length > 0
+    fail_msg: "rhdc_network_vlan_bridges must be defined with at least one VLAN configuration"
+    quiet: true
+
+- name: Validate VLAN bridge configurations
+  ansible.builtin.assert:
+    that:
+      - item.vlan_id is defined
+      - item.vlan_id | int > 0
+      - item.vlan_id | int < 4096
+      - item.parent_interface is defined
+      - item.bridge_name is defined
+    fail_msg: "Invalid VLAN configuration: {{ item }}"
+    quiet: true
+  loop: "{{ rhdc_network_vlan_bridges }}"
+  loop_control:
+    label: "VLAN {{ item.vlan_id }}"
+
+- name: Check if NetworkManager is running
+  ansible.builtin.systemd:
+    name: NetworkManager
+  register: nm_status
+  failed_when: nm_status.status.ActiveState != 'active'
+
+- name: Get existing NetworkManager connections
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: existing_connections
+  changed_when: false
+
+- name: Configure VLAN bridges
+  ansible.builtin.include_tasks: vlan_bridge_setup.yml
+  loop: "{{ rhdc_network_vlan_bridges }}"
+  loop_control:
+    loop_var: vlan_config
+    label: "VLAN {{ vlan_config.vlan_id }} ({{ vlan_config.bridge_name }})"

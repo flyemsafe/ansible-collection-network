@@ -1,0 +1,141 @@
+---
+# Configure individual VLAN bridge
+# Copyright: (c) 2025, Rodrique Heron <rheron@redhat.com>
+# Apache License 2.0
+
+- name: "Set connection names for VLAN {{ vlan_config.vlan_id }}"
+  ansible.builtin.set_fact:
+    bridge_con_name: "{{ vlan_config.bridge_name }}"
+    vlan_con_name: "vlan{{ vlan_config.vlan_id }}"
+    vlan_interface: "{{ vlan_config.parent_interface }}.{{ vlan_config.vlan_id }}"
+
+- name: "Check if bridge connection exists: {{ bridge_con_name }}"
+  ansible.builtin.set_fact:
+    bridge_exists: "{{ bridge_con_name in existing_connections.stdout_lines }}"
+
+- name: "Check if VLAN connection exists: {{ vlan_con_name }}"
+  ansible.builtin.set_fact:
+    vlan_exists: "{{ vlan_con_name in existing_connections.stdout_lines }}"
+
+# Remove old connections if force is enabled
+- name: "Remove existing bridge connection: {{ bridge_con_name }}"
+  ansible.builtin.command: nmcli connection delete {{ bridge_con_name }}
+  when:
+    - rhdc_network_vlan_bridge_force | bool
+    - bridge_exists | bool
+  changed_when: true
+
+- name: "Remove existing VLAN connection: {{ vlan_con_name }}"
+  ansible.builtin.command: nmcli connection delete {{ vlan_con_name }}
+  when:
+    - rhdc_network_vlan_bridge_force | bool
+    - vlan_exists | bool
+  changed_when: true
+
+# Refresh connection list after deletion
+- name: Refresh connection list
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: existing_connections
+  changed_when: false
+  when: rhdc_network_vlan_bridge_force | bool
+
+- name: "Update bridge exists status after force delete"
+  ansible.builtin.set_fact:
+    bridge_exists: "{{ bridge_con_name in existing_connections.stdout_lines }}"
+  when: rhdc_network_vlan_bridge_force | bool
+
+- name: "Update VLAN exists status after force delete"
+  ansible.builtin.set_fact:
+    vlan_exists: "{{ vlan_con_name in existing_connections.stdout_lines }}"
+  when: rhdc_network_vlan_bridge_force | bool
+
+# Create bridge connection
+- name: "Create bridge connection: {{ bridge_con_name }}"
+  ansible.builtin.command: >
+    nmcli connection add
+    type bridge
+    con-name {{ bridge_con_name }}
+    ifname {{ bridge_con_name }}
+    stp {{ 'yes' if rhdc_network_vlan_bridge_stp else 'no' }}
+    autoconnect {{ 'yes' if rhdc_network_vlan_bridge_autoconnect else 'no' }}
+  when: not bridge_exists | bool
+  register: bridge_created
+  changed_when: bridge_created.rc == 0
+
+# Create VLAN connection as bridge slave
+- name: "Create VLAN connection: {{ vlan_con_name }}"
+  ansible.builtin.command: >
+    nmcli connection add
+    type vlan
+    con-name {{ vlan_con_name }}
+    dev {{ vlan_config.parent_interface }}
+    id {{ vlan_config.vlan_id }}
+    master {{ bridge_con_name }}
+    slave-type bridge
+    autoconnect {{ 'yes' if rhdc_network_vlan_bridge_autoconnect else 'no' }}
+  when: not vlan_exists | bool
+  register: vlan_created
+  changed_when: vlan_created.rc == 0
+
+# Update parent interface if VLAN connection exists but force is not enabled
+- name: "Check VLAN parent interface for {{ vlan_con_name }}"
+  ansible.builtin.command: nmcli -t -f vlan.parent connection show {{ vlan_con_name }}
+  register: current_parent
+  changed_when: false
+  when:
+    - vlan_exists | bool
+    - not rhdc_network_vlan_bridge_force | bool
+
+- name: "Update VLAN parent interface: {{ vlan_con_name }}"
+  ansible.builtin.command: >
+    nmcli connection modify {{ vlan_con_name }}
+    vlan.parent {{ vlan_config.parent_interface }}
+  when:
+    - vlan_exists | bool
+    - not rhdc_network_vlan_bridge_force | bool
+    - current_parent.stdout != vlan_config.parent_interface
+  register: parent_updated
+  changed_when: parent_updated.rc == 0
+
+# Activate connections
+- name: "Activate bridge connection: {{ bridge_con_name }}"
+  ansible.builtin.command: nmcli connection up {{ bridge_con_name }}
+  register: bridge_up
+  changed_when: "'successfully activated' in bridge_up.stdout or 'Connection successfully activated' in bridge_up.stdout"
+  failed_when:
+    - bridge_up.rc != 0
+    - "'already active' not in bridge_up.stderr"
+    - "'Connection successfully activated' not in bridge_up.stdout"
+
+- name: "Activate VLAN connection: {{ vlan_con_name }}"
+  ansible.builtin.command: nmcli connection up {{ vlan_con_name }}
+  register: vlan_up
+  changed_when: "'successfully activated' in vlan_up.stdout or 'Connection successfully activated' in vlan_up.stdout"
+  failed_when:
+    - vlan_up.rc != 0
+    - "'already active' not in vlan_up.stderr"
+    - "'Connection successfully activated' not in vlan_up.stdout"
+
+# Verify configuration
+- name: "Verify VLAN interface exists: {{ vlan_interface }}"
+  ansible.builtin.command: ip link show {{ vlan_interface }}
+  register: vlan_check
+  changed_when: false
+  failed_when: false
+
+- name: "Verify bridge has VLAN slave"
+  ansible.builtin.command: bridge link show dev {{ vlan_interface }}
+  register: bridge_check
+  changed_when: false
+  failed_when: false
+
+- name: "Display VLAN bridge configuration"
+  ansible.builtin.debug:
+    msg:
+      - "VLAN {{ vlan_config.vlan_id }} configuration:"
+      - "  Bridge: {{ bridge_con_name }}"
+      - "  VLAN interface: {{ vlan_interface }}"
+      - "  Parent: {{ vlan_config.parent_interface }}"
+      - "  Status: {{ 'Active' if vlan_check.rc == 0 else 'Failed' }}"
+      - "  Bridge slave: {{ 'Yes' if bridge_check.rc == 0 else 'No' }}"
+  when: vlan_check.rc == 0

@@ -1,0 +1,22 @@
+---
+# rhdc.network.vlan_bridge role defaults
+# Copyright: (c) 2025, Rodrique Heron <rheron@redhat.com>
+# Apache License 2.0
+
+# List of VLAN bridges to configure
+# Example:
+#   rhdc_network_vlan_bridges:
+#     - vlan_id: 10
+#       parent_interface: eno1
+#       bridge_name: br-vlan10
+#       description: "Management VLAN"
+rhdc_network_vlan_bridges: []
+
+# Auto-start connections on boot
+rhdc_network_vlan_bridge_autoconnect: true
+
+# Bridge STP (Spanning Tree Protocol) setting
+rhdc_network_vlan_bridge_stp: false
+
+# Remove existing connections before creating (useful for migrations)
+rhdc_network_vlan_bridge_force: false
