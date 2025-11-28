@@ -1,0 +1,135 @@
+---
+# ==============================================================================
+# UniFi Switch Port Discovery
+# ==============================================================================
+# Discovers which switch port a device is connected to based on IP or MAC
+#
+# Required variables:
+#   - unifi_device_ip OR unifi_device_mac
+#
+# Returns:
+#   - unifi_port_discovery: Dict with port details
+
+- name: Validate required variables for port discovery
+  ansible.builtin.assert:
+    that:
+      - unifi_device_ip is defined or unifi_device_mac is defined
+    fail_msg: "Either unifi_device_ip or unifi_device_mac must be provided"
+
+- name: Resolve IP to MAC address if needed
+  when:
+    - unifi_device_ip is defined
+    - unifi_device_mac is not defined
+  block:
+    - name: Try to get MAC from host facts
+      ansible.builtin.setup:
+        filter: "ansible_default_ipv4"
+      delegate_to: "{{ unifi_device_ip }}"
+      register: device_facts
+      ignore_errors: true
+      when: unifi_device_ip is defined
+
+    - name: Extract MAC from facts if available
+      ansible.builtin.set_fact:
+        unifi_device_mac: "{{ device_facts.ansible_facts.ansible_default_ipv4.macaddress | default('') }}"
+      when:
+        - device_facts is defined
+        - device_facts.ansible_facts is defined
+        - device_facts.ansible_facts.ansible_default_ipv4 is defined
+
+    - name: Query UniFi clients for IP to MAC mapping
+      ansible.builtin.uri:
+        url: "{{ unifi_controller_url }}/api/s/{{ unifi_site }}/stat/sta"
+        method: GET
+        validate_certs: "{{ unifi_validate_certs }}"
+        headers:
+          Cookie: "{{ unifi_auth_cookie }}"
+        status_code: [200]
+      register: unifi_clients_result
+      when: unifi_device_mac is not defined or unifi_device_mac == ''
+
+    - name: Find MAC from UniFi clients
+      ansible.builtin.set_fact:
+        unifi_device_mac: "{{ (unifi_clients_result.json.data | selectattr('ip', 'defined') | selectattr('ip', 'equalto', unifi_device_ip) | first).mac | default('') }}"
+      when:
+        - unifi_device_mac is not defined or unifi_device_mac == ''
+        - unifi_clients_result.json.data is defined
+
+- name: Fail if MAC address could not be resolved
+  ansible.builtin.fail:
+    msg: "Could not resolve IP {{ unifi_device_ip }} to MAC address"
+  when: unifi_device_mac is not defined or unifi_device_mac == ''
+
+- name: Normalize MAC address to lowercase
+  ansible.builtin.set_fact:
+    unifi_device_mac_normalized: "{{ unifi_device_mac | lower }}"
+
+- name: Search all switches for the MAC address
+  ansible.builtin.set_fact:
+    port_search_results: "{{ unifi_query_results.switches | map('combine', {'_search_result': {}}) | list }}"
+
+- name: Find port on each switch
+  ansible.builtin.set_fact:
+    port_search_results: "{{ port_search_results | default([]) + [item | combine({'_search_result': (item.port_table | selectattr('last_connection', 'defined') | selectattr('last_connection.mac', 'defined') | selectattr('last_connection.mac', 'equalto', unifi_device_mac_normalized) | list | first | default({}))})] }}"
+  loop: "{{ unifi_query_results.switches }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Filter to switches with matching port
+  ansible.builtin.set_fact:
+    matching_switches: "{{ port_search_results | selectattr('_search_result.port_idx', 'defined') | list }}"
+
+- name: Set discovery result if port found
+  when: matching_switches | length > 0
+  block:
+    - name: Extract port details
+      ansible.builtin.set_fact:
+        discovered_switch: "{{ matching_switches[0] }}"
+        discovered_port: "{{ matching_switches[0]._search_result }}"
+
+    - name: Get port override configuration
+      ansible.builtin.set_fact:
+        port_override: "{{ discovered_switch.port_overrides | selectattr('port_idx', 'equalto', discovered_port.port_idx | int) | list | first | default({}) }}"
+      when: discovered_switch.port_overrides is defined
+
+    - name: Get native VLAN name
+      ansible.builtin.set_fact:
+        native_vlan_name: "{{ (unifi_query_results.networks | selectattr('_id', 'equalto', discovered_port.native_networkconf_id) | first).name | default('Unknown') }}"
+      when: discovered_port.native_networkconf_id is defined
+
+    - name: Build discovery result
+      ansible.builtin.set_fact:
+        unifi_port_discovery:
+          found: true
+          switch_name: "{{ discovered_switch.name }}"
+          switch_id: "{{ discovered_switch._id }}"
+          switch_ip: "{{ discovered_switch.config_network.ip | default('N/A') }}"
+          port_idx: "{{ discovered_port.port_idx }}"
+          port_name: "{{ discovered_port.name | default('') }}"
+          mac: "{{ unifi_device_mac_normalized }}"
+          ip: "{{ unifi_device_ip | default('N/A') }}"
+          speed: "{{ discovered_port.speed | default(0) }}"
+          full_duplex: "{{ discovered_port.full_duplex | default(false) }}"
+          link_up: "{{ discovered_port.up | default(false) }}"
+          poe_enabled: "{{ discovered_port.port_poe | default(false) }}"
+          is_uplink: "{{ discovered_port.is_uplink | default(false) }}"
+          vlan_config:
+            native_vlan_id: "{{ discovered_port.native_networkconf_id | default('') }}"
+            native_vlan_name: "{{ native_vlan_name | default('Unknown') }}"
+            tagged_vlan_mgmt: "{{ discovered_port.tagged_vlan_mgmt | default('auto') }}"
+          port_override: "{{ port_override | default({}) }}"
+          last_seen: "{{ discovered_port.last_connection.last_seen | default(0) }}"
+
+- name: Set discovery result if port not found
+  when: matching_switches | length == 0
+  ansible.builtin.set_fact:
+    unifi_port_discovery:
+      found: false
+      mac: "{{ unifi_device_mac_normalized }}"
+      ip: "{{ unifi_device_ip | default('N/A') }}"
+      message: "No switch port found for MAC {{ unifi_device_mac_normalized }}"
+
+- name: Display discovery result
+  ansible.builtin.debug:
+    var: unifi_port_discovery
+  when: not ansible_check_mode

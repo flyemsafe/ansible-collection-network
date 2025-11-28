@@ -18,8 +18,13 @@
 
 - name: Query UniFi infrastructure
   ansible.builtin.include_tasks: query.yml
-  when: unifi_action == "query"
+  when: unifi_action == "query" or unifi_action == "discover_port"
   tags: ['unifi', 'query']
+
+- name: Discover switch port by IP or MAC
+  ansible.builtin.include_tasks: discover_port.yml
+  when: unifi_action == "discover_port"
+  tags: ['unifi', 'discover_port']
 
 - name: Configure switch port VLAN
   ansible.builtin.include_tasks: switch_port.yml
