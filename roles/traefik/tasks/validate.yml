@@ -1,0 +1,118 @@
+---
+# Traefik Validation Tasks
+
+- name: Check Traefik container status
+  ansible.builtin.command:
+    cmd: podman ps --filter "name={{ traefik_container_name }}" --format {% raw %}"{{.Status}}"{% endraw %}
+  become: false
+  register: traefik_container_status
+  changed_when: false
+
+- name: Display container status
+  ansible.builtin.debug:
+    msg: "Traefik container status: {{ traefik_container_status.stdout }}"
+
+- name: Validate Traefik is running
+  ansible.builtin.assert:
+    that:
+      - "'Up' in traefik_container_status.stdout"
+    fail_msg: "Traefik container is not running!"
+    success_msg: "Traefik container is running"
+
+- name: Check Traefik systemd service status
+  ansible.builtin.systemd:
+    name: "{{ traefik_container_name }}"
+    scope: user
+  become: false
+  register: traefik_service_status
+
+- name: Display systemd service status
+  ansible.builtin.debug:
+    msg: "Traefik service active: {{ traefik_service_status.status.ActiveState }}"
+
+- name: Validate Traefik service is active
+  ansible.builtin.assert:
+    that:
+      - traefik_service_status.status.ActiveState == 'active'
+    fail_msg: "Traefik systemd service is not active!"
+    success_msg: "Traefik systemd service is active"
+
+- name: Check Traefik health endpoint
+  ansible.builtin.uri:
+    url: "http://localhost:{{ traefik_dashboard_port }}{{ traefik_healthcheck_path }}"
+    status_code: 200
+    timeout: 5
+  register: traefik_health_check
+  when: traefik_healthcheck_enabled
+
+- name: Display health check result
+  ansible.builtin.debug:
+    msg: "Traefik health check: {{ 'OK ✅' if traefik_health_check.status == 200 else 'FAILED ❌' }}"
+  when: traefik_healthcheck_enabled
+
+- name: Get Traefik version from API
+  ansible.builtin.uri:
+    url: "http://localhost:{{ traefik_dashboard_port }}/api/version"
+    method: GET
+    return_content: true
+  register: traefik_version_info
+  failed_when: false
+
+- name: Display Traefik version
+  ansible.builtin.debug:
+    msg: "Traefik version: {{ traefik_version_info.json.Version if traefik_version_info.json is defined else 'Unknown' }}"
+
+- name: Check Traefik container logs for errors
+  ansible.builtin.command:
+    cmd: podman logs --tail 50 {{ traefik_container_name }}
+  become: false
+  register: traefik_logs
+  changed_when: false
+
+- name: Display recent log lines
+  ansible.builtin.debug:
+    msg: "{{ traefik_logs.stdout_lines[-10:] }}"
+    verbosity: 1
+
+- name: Check for errors in logs
+  ansible.builtin.assert:
+    that:
+      - "'level=error' not in traefik_logs.stdout"
+      - "'level=fatal' not in traefik_logs.stdout"
+    fail_msg: "Errors detected in Traefik logs! Check: podman logs {{ traefik_container_name }}"
+    success_msg: "No critical errors in Traefik logs"
+  failed_when: false
+
+- name: Validate ACME configuration (if enabled)
+  ansible.builtin.stat:
+    path: "{{ traefik_acme_storage }}"
+  register: acme_file
+  when: traefik_acme_enabled
+
+- name: Display ACME status
+  ansible.builtin.debug:
+    msg: "ACME storage file exists: {{ 'YES ✅' if acme_file.stat.exists else 'NO ❌' }}"
+  when: traefik_acme_enabled
+
+- name: Validate services are configured
+  ansible.builtin.stat:
+    path: "{{ traefik_dynamic_config_dir }}/services.yml"
+  register: services_config
+  when: traefik_services | length > 0
+
+- name: Display services configuration status
+  ansible.builtin.debug:
+    msg: "Services configuration: {{ 'PRESENT ✅' if services_config.stat.exists else 'MISSING ❌' }}"
+  when: traefik_services | length > 0
+
+- name: Final validation summary
+  ansible.builtin.debug:
+    msg:
+      - "==============================================="
+      - "Traefik Validation Summary"
+      - "==============================================="
+      - "Container Running: {{ 'YES ✅' if 'Up' in traefik_container_status.stdout else 'NO ❌' }}"
+      - "Systemd Service Active: {{ 'YES ✅' if traefik_service_status.status.ActiveState == 'active' else 'NO ❌' }}"
+      - "Health Check: {{ 'OK ✅' if (traefik_healthcheck_enabled and traefik_health_check.status == 200) else 'N/A' }}"
+      - "Dashboard: http://{{ traefik_host }}:{{ traefik_dashboard_port }}/dashboard/"
+      - "==============================================="

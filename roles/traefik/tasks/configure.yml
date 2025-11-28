@@ -1,0 +1,87 @@
+---
+# Traefik Configuration Tasks
+
+- name: Deploy Traefik static configuration
+  ansible.builtin.template:
+    src: traefik.yml.j2
+    dest: "{{ traefik_config_dir }}/traefik.yml"
+    mode: '0644'
+    owner: "{{ traefik_user }}"
+    group: "{{ traefik_user }}"
+  become: false
+  notify:
+    - restart traefik
+
+- name: Deploy Traefik dynamic services configuration
+  ansible.builtin.template:
+    src: services.yml.j2
+    dest: "{{ traefik_dynamic_config_dir }}/services.yml"
+    mode: '0644'
+    owner: "{{ traefik_user }}"
+    group: "{{ traefik_user }}"
+  become: false
+  notify:
+    - reload traefik config
+  when: traefik_services | length > 0
+
+- name: Deploy Traefik middlewares configuration
+  ansible.builtin.template:
+    src: middlewares.yml.j2
+    dest: "{{ traefik_dynamic_config_dir }}/middlewares.yml"
+    mode: '0644'
+    owner: "{{ traefik_user }}"
+    group: "{{ traefik_user }}"
+  become: false
+  notify:
+    - reload traefik config
+  when: traefik_middlewares | length > 0
+
+- name: Deploy Traefik Quadlet systemd unit
+  ansible.builtin.template:
+    src: traefik.container.j2
+    dest: "{{ ansible_user_dir }}/.config/systemd/user/{{ traefik_container_name }}.container"
+    mode: '0644'
+  become: false
+  notify:
+    - systemd daemon-reload
+    - restart traefik
+
+- name: Enable and start Traefik service
+  ansible.builtin.systemd:
+    name: "{{ traefik_container_name }}"
+    state: started
+    enabled: true
+    scope: user
+    daemon_reload: true
+  become: false
+
+- name: Enable lingering for user (keep services running after logout)
+  ansible.builtin.command:
+    cmd: loginctl enable-linger {{ traefik_user }}
+  become: true
+  changed_when: false
+  failed_when: false
+
+- name: Wait for Traefik to be healthy
+  ansible.builtin.uri:
+    url: "http://localhost:{{ traefik_dashboard_port }}{{ traefik_healthcheck_path }}"
+    status_code: 200
+    timeout: 5
+  register: traefik_health
+  until: traefik_health.status == 200
+  retries: 12
+  delay: 5
+  when: traefik_healthcheck_enabled
+
+- name: Display Traefik status
+  ansible.builtin.debug:
+    msg:
+      - "==============================================="
+      - "Traefik Configuration Complete"
+      - "==============================================="
+      - "Dashboard: http://{{ traefik_host }}:{{ traefik_dashboard_port }}/dashboard/"
+      - "API: http://{{ traefik_host }}:{{ traefik_dashboard_port }}/api/"
+      - "Ping: http://{{ traefik_host }}:{{ traefik_dashboard_port }}{{ traefik_healthcheck_path }}"
+      - "Services configured: {{ traefik_services | length }}"
+      - "Middlewares configured: {{ traefik_middlewares | length }}"
+      - "==============================================="

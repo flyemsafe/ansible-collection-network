@@ -1,0 +1,91 @@
+---
+# Traefik Installation Tasks
+
+- name: Display installation plan
+  ansible.builtin.debug:
+    msg:
+      - "==============================================="
+      - "Traefik Reverse Proxy Installation"
+      - "==============================================="
+      - "Host: {{ traefik_host }}"
+      - "Container: {{ traefik_container_name }}"
+      - "Image: {{ traefik_image }}"
+      - "HTTP Port: {{ traefik_http_port }}"
+      - "HTTPS Port: {{ traefik_https_port }}"
+      - "Dashboard: {{ traefik_dashboard_enabled }}"
+      - "ACME Enabled: {{ traefik_acme_enabled }}"
+      - "Services Count: {{ traefik_services | length }}"
+      - "==============================================="
+
+- name: Ensure Podman is installed
+  ansible.builtin.package:
+    name: podman
+    state: present
+  become: true
+  when: ansible_facts.packages.podman is not defined
+
+- name: Create Traefik directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+    owner: "{{ traefik_user }}"
+    group: "{{ traefik_user }}"
+  loop:
+    - "{{ traefik_base_dir }}"
+    - "{{ traefik_config_dir }}"
+    - "{{ traefik_dynamic_config_dir }}"
+    - "{{ traefik_logs_dir }}"
+  become: false
+
+- name: Create ACME storage file
+  ansible.builtin.file:
+    path: "{{ traefik_acme_storage }}"
+    state: touch
+    mode: '0600'
+    owner: "{{ traefik_user }}"
+    group: "{{ traefik_user }}"
+  become: false
+  when: traefik_acme_enabled
+
+- name: Pull Traefik container image
+  containers.podman.podman_image:
+    name: "{{ traefik_image }}"
+    state: present
+  become: false
+  register: traefik_image_pull
+
+- name: Display image pull result
+  ansible.builtin.debug:
+    msg: "Traefik image {{ 'pulled successfully' if traefik_image_pull.changed else 'already present' }}"
+
+- name: Create systemd user directory
+  ansible.builtin.file:
+    path: "{{ ansible_user_dir }}/.config/systemd/user"
+    state: directory
+    mode: '0755'
+  become: false
+
+- name: Check if Traefik container is already running
+  ansible.builtin.command:
+    cmd: podman ps --filter "name={{ traefik_container_name }}" --format {% raw %}"{{.Names}}"{% endraw %}
+  become: false
+  register: traefik_running
+  changed_when: false
+  failed_when: false
+
+- name: Stop existing Traefik container (if running)
+  ansible.builtin.command:
+    cmd: podman stop {{ traefik_container_name }}
+  become: false
+  when: traefik_container_name in traefik_running.stdout
+  register: traefik_stop
+  failed_when: false
+
+- name: Remove existing Traefik container (if exists)
+  ansible.builtin.command:
+    cmd: podman rm {{ traefik_container_name }}
+  become: false
+  when: traefik_container_name in traefik_running.stdout
+  register: traefik_remove
+  failed_when: false

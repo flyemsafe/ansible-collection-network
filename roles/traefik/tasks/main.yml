@@ -1,0 +1,20 @@
+---
+# Traefik Role Main Tasks
+
+- name: Include install tasks
+  ansible.builtin.import_tasks: install.yml
+  tags:
+    - traefik
+    - traefik-install
+
+- name: Include configuration tasks
+  ansible.builtin.import_tasks: configure.yml
+  tags:
+    - traefik
+    - traefik-configure
+
+- name: Include validation tasks
+  ansible.builtin.import_tasks: validate.yml
+  tags:
+    - traefik
+    - traefik-validate

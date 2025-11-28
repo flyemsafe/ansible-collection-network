@@ -1,0 +1,35 @@
+---
+# Traefik Role Handlers
+
+- name: Restart traefik
+  ansible.builtin.systemd:
+    name: "{{ traefik_container_name }}"
+    state: restarted
+    scope: user
+    daemon_reload: true
+  become: false
+  listen: "restart traefik"
+
+- name: Reload traefik
+  ansible.builtin.systemd:
+    name: "{{ traefik_container_name }}"
+    state: reloaded
+    scope: user
+  become: false
+  listen: "reload traefik"
+  ignore_errors: true  # reload might not be supported, fall back to restart
+
+- name: Reload traefik configuration
+  ansible.builtin.command:
+    cmd: podman exec {{ traefik_container_name }} kill -HUP 1
+  become: false
+  listen: "reload traefik config"
+  ignore_errors: true
+  changed_when: false
+
+- name: Daemon reload
+  ansible.builtin.systemd:
+    daemon_reload: true
+    scope: user
+  become: false
+  listen: "systemd daemon-reload"

@@ -1,0 +1,36 @@
+---
+galaxy_info:
+  role_name: traefik
+  namespace: rhdc.network
+  author: RHDC Infrastructure Team
+  description: Deploy and manage Traefik reverse proxy with Podman and Quadlet
+  company: Rodhouse Datacenter
+  license: MIT
+  min_ansible_version: "2.15"
+
+  platforms:
+    - name: Fedora
+      versions:
+        - 38
+        - 39
+        - 40
+    - name: EL
+      versions:
+        - 9
+
+  galaxy_tags:
+    - traefik
+    - reverse-proxy
+    - podman
+    - containers
+    - networking
+    - ssl
+    - acme
+    - letsencrypt
+
+dependencies: []
+  # - role: rhdc.container.podman
+  #   when: ansible_facts.packages.podman is not defined
+
+collections:
+  - containers.podman

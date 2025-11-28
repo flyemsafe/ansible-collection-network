@@ -1,0 +1,108 @@
+---
+# Traefik Role Default Variables
+
+# Traefik version and image
+traefik_version: "v3.2"
+traefik_image: "docker.io/library/traefik:{{ traefik_version }}"
+
+# Deployment configuration
+traefik_host: "{{ inventory_hostname }}"
+traefik_user: "{{ ansible_user | default('radmin') }}"
+traefik_container_name: "traefik"
+
+# Storage paths (rootless Podman on servers)
+traefik_base_dir: "/opt/podman/containers/{{ traefik_container_name }}"
+traefik_config_dir: "{{ traefik_base_dir }}/config"
+traefik_dynamic_config_dir: "{{ traefik_config_dir }}/dynamic"
+traefik_logs_dir: "{{ traefik_base_dir }}/logs"
+traefik_acme_storage: "{{ traefik_config_dir }}/acme.json"
+
+# Network configuration
+traefik_http_port: 80
+traefik_https_port: 443
+traefik_dashboard_port: 8080
+
+# Dashboard configuration
+traefik_dashboard_enabled: true
+traefik_dashboard_insecure: false  # If true, dashboard accessible without auth on :8080
+traefik_dashboard_auth_enabled: true
+traefik_dashboard_users: []  # List of htpasswd-formatted users (use htpasswd or ansible vault)
+
+# ACME / Let's Encrypt configuration
+traefik_acme_enabled: true
+traefik_acme_email: "admin@rodhouse.net"
+traefik_acme_ca_server: "https://acme-v02.api.letsencrypt.org/directory"  # Production
+# traefik_acme_ca_server: "https://acme-staging-v02.api.letsencrypt.org/directory"  # Staging
+traefik_acme_challenge_type: "dns-01"  # dns-01, http-01, tls-alpn-01
+traefik_acme_dns_provider: "cloudflare"
+
+# Cloudflare DNS Challenge (for dns-01)
+traefik_cloudflare_email: "{{ vault_cloudflare_email | default('') }}"
+traefik_cloudflare_api_token: "{{ vault_cloudflare_api_token | default('') }}"
+traefik_cloudflare_dns_resolvers:
+  - "1.1.1.1:53"
+  - "1.0.0.1:53"
+
+# Service routing configuration
+# Services defined in inventory (group_vars or host_vars)
+# Example:
+# traefik_services:
+#   - name: unifi
+#     hostname: unifi.lab.rodhouse.net
+#     backend_url: https://tuareg.lab.rodhouse.net:8443
+#     backend_scheme: https
+#     insecure_skip_verify: true
+#     health_check_path: /
+#     middlewares:
+#       - headers-forwarded-proto
+traefik_services: []
+
+# Global middlewares
+traefik_middlewares:
+  - name: headers-forwarded-proto
+    type: headers
+    config:
+      customRequestHeaders:
+        X-Forwarded-Proto: "https"
+
+  - name: security-headers
+    type: headers
+    config:
+      customResponseHeaders:
+        X-Frame-Options: "SAMEORIGIN"
+        X-Content-Type-Options: "nosniff"
+        X-XSS-Protection: "1; mode=block"
+        Referrer-Policy: "strict-origin-when-cross-origin"
+
+# Logging configuration
+traefik_log_level: "INFO"  # DEBUG, INFO, WARN, ERROR
+traefik_access_log_enabled: true
+traefik_access_log_format: "json"  # json, common
+traefik_access_log_file: "/logs/access.log"
+
+# Metrics configuration (Prometheus)
+traefik_metrics_enabled: false
+traefik_metrics_prometheus_enabled: false
+traefik_metrics_prometheus_port: 8082
+
+# TLS configuration
+traefik_tls_min_version: "VersionTLS12"
+traefik_tls_cipher_suites: []  # Empty = use Traefik defaults
+
+# Health check endpoint
+traefik_healthcheck_enabled: true
+traefik_healthcheck_path: "/ping"
+
+# Systemd service configuration
+traefik_systemd_enabled: true
+traefik_systemd_restart_policy: "always"
+traefik_systemd_after:
+  - network-online.target
+
+# Container resource limits (optional)
+traefik_cpu_limit: ""  # e.g., "2.0"
+traefik_memory_limit: ""  # e.g., "1G"
+
+# Auto-restart configuration
+traefik_auto_restart: true
+traefik_restart_sec: 10
