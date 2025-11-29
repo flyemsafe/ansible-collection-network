@@ -1,0 +1,47 @@
+---
+##################################################
+# rhdc.network.kea_dhcp - Default Variables
+##################################################
+
+# Container configuration
+kea_container_name: rhdc-kea-dhcp
+kea_image_name: rhdc-kea-dhcp
+kea_image_tag: latest
+
+# Directory paths
+kea_base_dir: /opt/podman/containers/rhdc-kea-dhcp
+kea_config_dir: "{{ kea_base_dir }}/config"
+kea_container_dir: "{{ kea_base_dir }}/container"
+kea_logs_dir: "{{ kea_base_dir }}/logs"
+kea_leases_dir: "{{ kea_base_dir }}/leases"
+
+# Network configuration
+kea_interface: "*"  # Listen on all interfaces
+
+# Subnet configuration
+kea_subnets:
+  - subnet: "172.23.11.0/24"
+    pools:
+      - "172.23.11.100 - 172.23.11.200"
+    gateway: "172.23.11.1"
+    dns_servers:
+      - "172.23.11.1"
+    domain_name: "lab.rodhouse.net"
+    lease_time: 86400  # 24 hours
+    
+# PXE Boot configuration
+kea_pxe_enabled: true
+kea_pxe_next_server: "172.23.11.5"
+kea_pxe_boot_file_bios: "boot.ipxe"
+kea_pxe_boot_file_uefi: "rhdc-boot.efi"
+
+# DDNS configuration (future)
+kea_ddns_enabled: false
+kea_ddns_server: ""
+kea_ddns_domain: "lab.rodhouse.net"
+
+# Logging
+kea_log_level: "INFO"  # DEBUG, INFO, WARN, ERROR
+
+# Service configuration
+kea_timezone: "America/New_York"

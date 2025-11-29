@@ -1,0 +1,106 @@
+{
+  "Dhcp4": {
+    "interfaces-config": {
+      "interfaces": ["{{ kea_interface }}"],
+      "dhcp-socket-type": "raw"
+    },
+    
+    "control-socket": {
+      "socket-type": "unix",
+      "socket-name": "/tmp/kea-dhcp4-ctrl.sock"
+    },
+    
+    "lease-database": {
+      "type": "memfile",
+      "persist": true,
+      "name": "/var/lib/kea/kea-leases4.csv",
+      "lfc-interval": 3600
+    },
+    
+    "expired-leases-processing": {
+      "reclaim-timer-wait-time": 10,
+      "flush-reclaimed-timer-wait-time": 25,
+      "hold-reclaimed-time": 3600,
+      "max-reclaim-leases": 100,
+      "max-reclaim-time": 250,
+      "unwarned-reclaim-cycles": 5
+    },
+    
+{% if kea_pxe_enabled %}
+    "client-classes": [
+      {
+        "name": "iPXE",
+        "test": "option[user-class].text == 'iPXE'",
+        "next-server": "{{ kea_pxe_next_server }}",
+        "boot-file-name": "{{ kea_pxe_boot_file_bios }}"
+      },
+      {
+        "name": "UEFI_x64",
+        "test": "option[93].hex == 0x0007",
+        "next-server": "{{ kea_pxe_next_server }}",
+        "boot-file-name": "{{ kea_pxe_boot_file_uefi }}"
+      },
+      {
+        "name": "UEFI_x64_HTTP",
+        "test": "option[93].hex == 0x0010",
+        "next-server": "{{ kea_pxe_next_server }}",
+        "boot-file-name": "{{ kea_pxe_boot_file_uefi }}"
+      },
+      {
+        "name": "BIOS",
+        "test": "not member('UEFI_x64') and not member('UEFI_x64_HTTP') and not member('iPXE')",
+        "next-server": "{{ kea_pxe_next_server }}",
+        "boot-file-name": "{{ kea_pxe_boot_file_bios }}"
+      }
+    ],
+{% endif %}
+    
+    "subnet4": [
+{% for subnet in kea_subnets %}
+      {
+        "subnet": "{{ subnet.subnet }}",
+        "pools": [
+{% for pool in subnet.pools %}
+          { "pool": "{{ pool }}" }{{ "," if not loop.last else "" }}
+{% endfor %}
+        ],
+        "option-data": [
+          {
+            "name": "routers",
+            "data": "{{ subnet.gateway }}"
+          },
+          {
+            "name": "domain-name-servers",
+            "data": "{{ subnet.dns_servers | join(', ') }}"
+          },
+          {
+            "name": "domain-name",
+            "data": "{{ subnet.domain_name }}"
+          }
+        ],
+{% if kea_pxe_enabled %}
+        "next-server": "{{ kea_pxe_next_server }}",
+{% endif %}
+        "valid-lifetime": {{ subnet.lease_time }},
+        "max-valid-lifetime": {{ subnet.lease_time * 2 }}
+      }{{ "," if not loop.last else "" }}
+{% endfor %}
+    ],
+    
+    "loggers": [
+      {
+        "name": "kea-dhcp4",
+        "output_options": [
+          {
+            "output": "stdout",
+            "flush": true,
+            "maxsize": 10485760,
+            "maxver": 3,
+            "pattern": "%D{%Y-%m-%d %H:%M:%S.%q} %-5p [%c/%i.%t] %m\n"
+          }
+        ],
+        "severity": "{{ kea_log_level }}"
+      }
+    ]
+  }
+}

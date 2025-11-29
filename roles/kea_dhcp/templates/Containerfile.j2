@@ -1,0 +1,21 @@
+FROM docker.io/alpine:latest
+
+# Install Kea DHCP server
+RUN apk add --no-cache \
+    kea \
+    kea-dhcp4 \
+    tzdata \
+    && mkdir -p /var/lib/kea /var/run/kea /etc/kea
+
+# Set timezone
+ENV TZ={{ kea_timezone }}
+
+# Expose DHCP port
+EXPOSE 67/udp
+
+# Copy startup script
+COPY start-kea.sh /start-kea.sh
+RUN chmod +x /start-kea.sh
+
+# Run Kea DHCP
+CMD ["/start-kea.sh"]

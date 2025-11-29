@@ -1,0 +1,100 @@
+---
+##################################################
+# rhdc.network.kea_dhcp - Main Tasks
+##################################################
+
+- name: Create directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: '0755'
+  loop:
+    - "{{ kea_base_dir }}"
+    - "{{ kea_config_dir }}"
+    - "{{ kea_container_dir }}"
+    - "{{ kea_logs_dir }}"
+    - "{{ kea_leases_dir }}"
+
+- name: Template Containerfile
+  ansible.builtin.template:
+    src: Containerfile.j2
+    dest: "{{ kea_container_dir }}/Containerfile"
+    mode: '0644'
+
+- name: Template container startup script
+  ansible.builtin.template:
+    src: start-kea.sh.j2
+    dest: "{{ kea_container_dir }}/start-kea.sh"
+    mode: '0755'
+
+- name: Template Kea DHCP configuration
+  ansible.builtin.template:
+    src: kea-dhcp4.json.j2
+    dest: "{{ kea_config_dir }}/kea-dhcp4.json"
+    mode: '0644'
+    validate: 'python3 -m json.tool %s'
+  notify: Restart Kea DHCP
+
+- name: Build container image (rootless)
+  containers.podman.podman_image:
+    name: "{{ kea_image_name }}"
+    tag: "{{ kea_image_tag }}"
+    path: "{{ kea_container_dir }}"
+    force: true
+  become: false
+
+- name: Export image from rootless to rootful storage
+  ansible.builtin.shell: |
+    podman save {{ kea_image_name }}:{{ kea_image_tag }} | \
+    sudo podman load
+  args:
+    executable: /bin/bash
+  become: false
+  changed_when: true
+
+- name: Template systemd service file
+  ansible.builtin.template:
+    src: rhdc-kea-dhcp.service.j2
+    dest: /etc/systemd/system/rhdc-kea-dhcp.service
+    mode: '0644'
+  notify: Reload systemd
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: Enable and start Kea DHCP service
+  ansible.builtin.systemd:
+    name: rhdc-kea-dhcp.service
+    enabled: true
+    state: started
+
+- name: Display deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "RHDC Kea DHCP Server Deployed"
+      - "========================================="
+      - ""
+      - "Service: rhdc-kea-dhcp.service"
+      - "Status: started"
+      - "DHCP Port: 67/udp"
+      - ""
+      - "Configuration:"
+      - "  Config: {{ kea_config_dir }}/kea-dhcp4.json"
+      - "  Leases: {{ kea_leases_dir }}/kea-leases4.csv"
+      - ""
+      - "PXE Boot:"
+      - "  Next Server: {{ kea_pxe_next_server }}"
+      - "  BIOS: {{ kea_pxe_boot_file_bios }}"
+      - "  UEFI: {{ kea_pxe_boot_file_uefi }}"
+      - ""
+      - "Subnets:"
+{% for subnet in kea_subnets %}
+      - "  - {{ subnet.subnet }} (gateway: {{ subnet.gateway }})"
+{% endfor %}
+      - ""
+      - "Verification:"
+      - "  sudo systemctl status rhdc-kea-dhcp.service"
+      - "  sudo podman logs rhdc-kea-dhcp"
+      - "  sudo podman exec rhdc-kea-dhcp cat /var/lib/kea/kea-leases4.csv"
