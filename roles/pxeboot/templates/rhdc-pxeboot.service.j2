@@ -1,0 +1,28 @@
+[Unit]
+Description=RHDC PXE Boot Server (dnsmasq + nginx)
+Documentation=https://github.com/flyemsafe/rodhouse-datacenter/issues/319
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+
+ExecStartPre=-/usr/bin/podman rm -f {{ pxeboot_container_name }}
+ExecStart=/usr/bin/podman run \
+  --rm \
+  --name {{ pxeboot_container_name }} \
+  --network host \
+  -v {{ pxeboot_menus_dir }}:/tftproot:z \
+  -v {{ pxeboot_config_dir }}/dnsmasq.conf:/etc/dnsmasq.conf:ro \
+  -v {{ pxeboot_config_dir }}/nginx-default.conf:/etc/nginx/http.d/default.conf:ro \
+  -v {{ pxeboot_iso_mount_base }}:{{ pxeboot_iso_mount_base }}:ro \
+  -e TZ={{ pxeboot_timezone }} \
+  localhost/{{ pxeboot_image_name }}:{{ pxeboot_image_tag }}
+
+ExecStop=/usr/bin/podman stop -t 10 {{ pxeboot_container_name }}
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,56 @@
+---
+##################################################
+# RHDC PXE Boot Server - Default Variables
+##################################################
+
+# Container configuration
+pxeboot_container_name: rhdc-pxeboot
+pxeboot_image_name: rhdc-pxeboot
+pxeboot_image_tag: latest
+
+# Paths
+pxeboot_base_dir: /opt/podman/containers/rhdc-pxeboot
+pxeboot_menus_dir: "{{ pxeboot_base_dir }}/menus"
+pxeboot_config_dir: "{{ pxeboot_base_dir }}/config"
+pxeboot_container_dir: "{{ pxeboot_base_dir }}/container"
+pxeboot_logs_dir: "{{ pxeboot_base_dir }}/logs"
+
+# ISO repository location (loop-mounted ISOs)
+pxeboot_iso_mount_base: /srv/rhel-isos
+
+# Network configuration
+pxeboot_server_ip: "{{ ansible_default_ipv4.address }}"
+pxeboot_tftp_port: 69
+pxeboot_http_port: 80
+
+# Timezone
+pxeboot_timezone: America/New_York
+
+# RHEL versions to configure
+pxeboot_rhel_versions:
+  - version: "8.10"
+    iso_dir: rhel-8.10
+    kernel_path: images/pxeboot/vmlinuz
+    initrd_path: images/pxeboot/initrd.img
+  - version: "9.7"
+    iso_dir: rhel-9.7
+    kernel_path: images/pxeboot/vmlinuz
+    initrd_path: images/pxeboot/initrd.img
+  - version: "10.1"
+    iso_dir: rhel-10.1
+    kernel_path: images/pxeboot/vmlinuz
+    initrd_path: images/pxeboot/initrd.img
+
+# Menu configuration
+pxeboot_menu_title: "Rodhouse Datacenter - PXE Boot Menu"
+pxeboot_menu_timeout: 10000  # 10 seconds (in milliseconds)
+pxeboot_default_option: rhel10
+
+# Systemd service
+pxeboot_service_name: rhdc-pxeboot
+pxeboot_service_enabled: true
+pxeboot_service_state: started
+
+# Container build
+pxeboot_build_container: true
+pxeboot_force_rebuild: false

@@ -1,0 +1,19 @@
+# RHDC PXE Boot Server - TFTP Configuration
+# Rodhouse Datacenter Infrastructure Team
+# Managed by Ansible - DO NOT EDIT MANUALLY
+
+# Disable DNS (we only want TFTP)
+port=0
+
+# Enable TFTP server
+enable-tftp
+tftp-root=/tftproot
+tftp-secure
+
+# Logging
+log-facility=-
+log-dhcp
+log-queries
+
+# TFTP options
+tftp-no-blocksize

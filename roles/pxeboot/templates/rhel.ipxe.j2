@@ -1,0 +1,37 @@
+#!ipxe
+
+###############################################################################
+# RHEL {{ item.version }} PXE Boot
+# Local repository: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}
+# Managed by Ansible - Modifications will be overwritten
+###############################################################################
+
+echo ====================================
+echo RHEL {{ item.version }} Network Installation
+echo ====================================
+echo
+echo Repository: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}
+echo Kernel: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.kernel_path }}
+echo Initrd: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.initrd_path }}
+echo
+echo Downloading kernel and initrd...
+echo
+
+kernel http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.kernel_path }} inst.repo=http://{{ pxeboot_server_ip }}/{{ item.iso_dir }} inst.stage2=http://{{ pxeboot_server_ip }}/{{ item.iso_dir }} || goto error
+initrd http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.initrd_path }} || goto error
+boot
+
+:error
+echo
+echo ============================================
+echo Error: Failed to load RHEL {{ item.version }} installer
+echo ============================================
+echo
+echo Troubleshooting:
+echo   1. Verify kernel exists: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.kernel_path }}
+echo   2. Verify initrd exists: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.initrd_path }}
+echo   3. Check network connectivity
+echo
+echo Press any key to return to menu...
+prompt
+chain boot.ipxe

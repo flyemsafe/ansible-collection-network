@@ -1,0 +1,132 @@
+---
+##################################################
+# RHDC PXE Boot Server - Main Tasks
+##################################################
+
+- name: Create directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: radmin
+    group: radmin
+    mode: '0755'
+  loop:
+    - "{{ pxeboot_base_dir }}"
+    - "{{ pxeboot_menus_dir }}"
+    - "{{ pxeboot_config_dir }}"
+    - "{{ pxeboot_container_dir }}"
+    - "{{ pxeboot_logs_dir }}"
+
+- name: Template Containerfile
+  ansible.builtin.template:
+    src: Containerfile.j2
+    dest: "{{ pxeboot_container_dir }}/Containerfile"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+  register: containerfile_result
+
+- name: Template container startup script
+  ansible.builtin.template:
+    src: start-pxeboot.sh.j2
+    dest: "{{ pxeboot_container_dir }}/start-pxeboot.sh"
+    owner: radmin
+    group: radmin
+    mode: '0755'
+  register: startup_script_result
+
+- name: Template dnsmasq configuration
+  ansible.builtin.template:
+    src: dnsmasq.conf.j2
+    dest: "{{ pxeboot_config_dir }}/dnsmasq.conf"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+
+- name: Template nginx configuration
+  ansible.builtin.template:
+    src: nginx-default.conf.j2
+    dest: "{{ pxeboot_config_dir }}/nginx-default.conf"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+
+- name: Template main boot.ipxe menu
+  ansible.builtin.template:
+    src: boot.ipxe.j2
+    dest: "{{ pxeboot_menus_dir }}/boot.ipxe"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+
+- name: Template RHEL-specific iPXE menus
+  ansible.builtin.template:
+    src: rhel.ipxe.j2
+    dest: "{{ pxeboot_menus_dir }}/rhel-{{ item.version | replace('.', '') }}.ipxe"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+  loop: "{{ pxeboot_rhel_versions }}"
+  loop_control:
+    label: "{{ item.version }}"
+
+- name: Build container image (rootless)
+  containers.podman.podman_image:
+    name: "{{ pxeboot_image_name }}"
+    tag: "{{ pxeboot_image_tag }}"
+    path: "{{ pxeboot_container_dir }}"
+    force: "{{ pxeboot_force_rebuild }}"
+    state: build
+  when: pxeboot_build_container
+  become: false
+  register: podman_build_result
+
+- name: Export image from rootless to rootful storage
+  ansible.builtin.shell: |
+    podman save {{ pxeboot_image_name }}:{{ pxeboot_image_tag }} | sudo podman load
+  args:
+    executable: /bin/bash
+  when: pxeboot_build_container and podman_build_result.changed
+  become: false
+  changed_when: true
+
+- name: Template systemd service file
+  ansible.builtin.template:
+    src: rhdc-pxeboot.service.j2
+    dest: /etc/systemd/system/{{ pxeboot_service_name }}.service
+    owner: root
+    group: root
+    mode: '0644'
+  register: systemd_service_result
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: true
+  when: systemd_service_result.changed
+
+- name: Enable and start PXE boot service
+  ansible.builtin.systemd:
+    name: "{{ pxeboot_service_name }}.service"
+    enabled: "{{ pxeboot_service_enabled }}"
+    state: "{{ pxeboot_service_state }}"
+
+- name: Display deployment summary
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "RHDC PXE Boot Server Deployed"
+      - "========================================="
+      - ""
+      - "Service: {{ pxeboot_service_name }}.service"
+      - "Status: {{ pxeboot_service_state }}"
+      - "TFTP: {{ pxeboot_server_ip }}:{{ pxeboot_tftp_port }}"
+      - "HTTP: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}"
+      - ""
+      - "RHEL Versions:"
+      - "{% for rhel in pxeboot_rhel_versions %}  - RHEL {{ rhel.version }} ({{ rhel.iso_dir }})\n{% endfor %}"
+      - ""
+      - "Test:"
+      - "  echo 'get boot.ipxe /tmp/test.ipxe' | tftp {{ pxeboot_server_ip }}"
+      - "  curl -I http://{{ pxeboot_server_ip }}/{{ pxeboot_rhel_versions[0].iso_dir }}/{{ pxeboot_rhel_versions[0].kernel_path }}"
+      - ""
+      - "PXE Boot Menu: {{ pxeboot_menu_title }}"

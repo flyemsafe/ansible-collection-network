@@ -1,0 +1,23 @@
+FROM docker.io/alpine:latest
+
+LABEL maintainer="Rodhouse Datacenter Infrastructure Team"
+LABEL description="Simple TFTP + HTTP PXE boot server for RHEL ISOs"
+
+# Install dnsmasq (TFTP) and nginx (HTTP)
+RUN apk add --no-cache \
+    dnsmasq \
+    nginx \
+    tzdata
+
+# Create directories
+RUN mkdir -p /tftproot /var/www/html /run/nginx
+
+# Expose ports
+EXPOSE {{ pxeboot_tftp_port }}/udp {{ pxeboot_http_port }}/tcp
+
+# Copy startup script
+COPY start-pxeboot.sh /start-pxeboot.sh
+RUN chmod +x /start-pxeboot.sh
+
+# Run startup script
+CMD ["/start-pxeboot.sh"]

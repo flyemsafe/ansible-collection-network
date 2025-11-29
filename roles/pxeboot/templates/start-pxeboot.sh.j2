@@ -1,0 +1,27 @@
+#!/bin/sh
+
+echo "======================================"
+echo "RHDC PXE Boot Server Starting"
+echo "======================================"
+echo ""
+echo "Services:"
+echo "  - dnsmasq (TFTP server on port {{ pxeboot_tftp_port }}/udp)"
+echo "  - nginx (HTTP server on port {{ pxeboot_http_port }}/tcp)"
+echo ""
+echo "TFTP root: /tftproot"
+echo "HTTP root: /var/www/html -> {{ pxeboot_iso_mount_base }}"
+echo ""
+
+# Start dnsmasq in background
+echo "Starting dnsmasq..."
+dnsmasq --no-daemon --log-facility=- --log-dhcp --log-queries &
+
+# Start nginx in foreground
+echo "Starting nginx..."
+nginx -g 'daemon off;' &
+
+# Wait for any process to exit
+wait -n
+
+# Exit with status of process that exited first
+exit $?

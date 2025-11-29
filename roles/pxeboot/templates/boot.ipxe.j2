@@ -1,0 +1,46 @@
+#!ipxe
+
+###############################################################################
+# {{ pxeboot_menu_title }}
+# Simple, maintainable menu for local RHEL installations
+# Managed by Ansible - Modifications will be overwritten
+###############################################################################
+
+:start
+menu {{ pxeboot_menu_title }}
+item --gap --             ──────────────────────────────────
+item --gap --             RHEL Network Installations:
+{% for rhel in pxeboot_rhel_versions %}
+item rhel{{ rhel.version | replace('.', '') }}{% if loop.first %}                {% endif %}Red Hat Enterprise Linux {{ rhel.version }}
+{% endfor %}
+item --gap --             ──────────────────────────────────
+item --gap --             Options:
+item shell                iPXE Shell
+item reboot               Reboot
+item exit                 Exit to BIOS
+item --gap --             ──────────────────────────────────
+choose --default {{ pxeboot_default_option }} --timeout {{ pxeboot_menu_timeout }} target && goto ${target}
+
+{% for rhel in pxeboot_rhel_versions %}
+:rhel{{ rhel.version | replace('.', '') }}
+chain rhel-{{ rhel.version | replace('.', '') }}.ipxe || goto error
+
+{% endfor %}
+:shell
+shell
+
+:reboot
+reboot
+
+:exit
+exit
+
+:error
+echo
+echo ============================================
+echo Error: Failed to load boot configuration
+echo ============================================
+echo
+echo Press any key to return to menu...
+prompt
+goto start
