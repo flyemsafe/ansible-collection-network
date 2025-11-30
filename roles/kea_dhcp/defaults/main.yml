@@ -22,12 +22,22 @@ kea_interface: "*"  # Listen on all interfaces
 kea_subnets:
   - subnet: "172.23.11.0/24"
     pools:
-      - "172.23.11.100 - 172.23.11.200"
+      - "172.23.11.100 - 172.23.11.150"
     gateway: "172.23.11.1"
     dns_servers:
       - "172.23.11.1"
+    ntp_servers:
+      - "172.23.11.1"
     domain_name: "lab.rodhouse.net"
     lease_time: 86400  # 24 hours
+
+# Static DHCP reservations
+kea_reservations: []
+# Example:
+# kea_reservations:
+#   - hostname: "server01"
+#     hw_address: "aa:bb:cc:dd:ee:ff"
+#     ip_address: "172.23.11.10"
     
 # PXE Boot configuration
 kea_pxe_enabled: true

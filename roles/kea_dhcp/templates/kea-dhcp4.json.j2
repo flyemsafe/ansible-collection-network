@@ -76,8 +76,23 @@
           {
             "name": "domain-name",
             "data": "{{ subnet.domain_name }}"
-          }
+          }{% if subnet.ntp_servers is defined and subnet.ntp_servers | length > 0 %},
+          {
+            "name": "ntp-servers",
+            "data": "{{ subnet.ntp_servers | join(', ') }}"
+          }{% endif %}
         ],
+{% if kea_reservations | length > 0 %}
+        "reservations": [
+{% for reservation in kea_reservations %}
+          {
+            "hw-address": "{{ reservation.hw_address }}",
+            "ip-address": "{{ reservation.ip_address }}"{% if reservation.hostname is defined %},
+            "hostname": "{{ reservation.hostname }}"{% endif %}
+          }{{ "," if not loop.last else "" }}
+{% endfor %}
+        ],
+{% endif %}
 {% if kea_pxe_enabled %}
         "next-server": "{{ kea_pxe_next_server }}",
 {% endif %}
