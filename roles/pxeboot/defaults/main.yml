@@ -16,7 +16,7 @@ pxeboot_container_dir: "{{ pxeboot_base_dir }}/container"
 pxeboot_logs_dir: "{{ pxeboot_base_dir }}/logs"
 
 # ISO repository location (loop-mounted ISOs)
-pxeboot_iso_mount_base: /srv/rhel-isos
+pxeboot_iso_mount_base: /mnt/ssd/pxeboot/repos
 
 # Network configuration
 pxeboot_server_ip: "{{ ansible_default_ipv4.address }}"
