@@ -91,11 +91,11 @@ certificatesResolvers:
       # Single certificate covering all RHDC domains
       domains:
 {% for domain_group in traefik_acme_domains %}
-        - main: {{ domain_group.main }}
+        - main: "{{ domain_group.main }}"
 {% if domain_group.sans is defined and domain_group.sans | length > 0 %}
           sans:
 {% for san in domain_group.sans %}
-            - {{ san }}
+            - "{{ san }}"
 {% endfor %}
 {% endif %}
 {% endfor %}
