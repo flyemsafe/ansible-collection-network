@@ -23,8 +23,10 @@ Environment=CF_API_EMAIL={{ traefik_cloudflare_email }}
 {% endif %}
 
 # Volume mounts
-Volume={{ traefik_config_dir }}:/config:Z
-Volume={{ traefik_logs_dir }}:/logs:Z
+# Note: Using :z (shared) instead of :Z (exclusive) to allow stat() syscall
+# :Z breaks stat() due to SELinux MCS label isolation
+Volume={{ traefik_config_dir }}:/config:z
+Volume={{ traefik_logs_dir }}:/logs:z
 
 # Port mappings
 PublishPort={{ traefik_http_port }}:{{ traefik_http_port }}
