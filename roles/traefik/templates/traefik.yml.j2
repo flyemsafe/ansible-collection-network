@@ -86,6 +86,20 @@ certificatesResolvers:
 {% elif traefik_acme_challenge_type == 'tls-alpn-01' %}
       tlsChallenge: {}
 {% endif %}
+{% if traefik_acme_domains is defined and traefik_acme_domains | length > 0 %}
+      # Wildcard certificate with SANs (like pfSense ACME)
+      # Single certificate covering all RHDC domains
+      domains:
+{% for domain_group in traefik_acme_domains %}
+        - main: {{ domain_group.main }}
+{% if domain_group.sans is defined and domain_group.sans | length > 0 %}
+          sans:
+{% for san in domain_group.sans %}
+            - {{ san }}
+{% endfor %}
+{% endif %}
+{% endfor %}
+{% endif %}
 {% endif %}
 
 # Logging
