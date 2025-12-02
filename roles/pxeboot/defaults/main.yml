@@ -143,6 +143,46 @@ pxeboot_build_container: true
 pxeboot_force_rebuild: false
 
 ##################################################
+# Custom Boot Entries (Host-Specific)
+##################################################
+# Define custom boot menu entries for specific hosts or use cases.
+# These appear in a "Host-Specific" section of the boot menu.
+#
+# Override in inventory/host_vars with your custom entries:
+#
+# Example:
+#   pxeboot_custom_entries:
+#     - name: kvmzfs03-rhel101
+#       label: "kvmzfs03 - RHEL 10.1 (KVM/ZFS)"
+#       description: "Automated install for kvmzfs03"
+#       rhel_version: "10.1"
+#       kickstart: "kvmzfs-rhel101.ks"  # Optional: custom kickstart file
+#       kernel_args: "inst.graphical nomodeset"
+#
+#     - name: akili-rhel101
+#       label: "Akili - RHEL 10.1 (GPU Server)"
+#       description: "Automated install for Akili"
+#       rhel_version: "10.1"
+#       kickstart: "akili-rhel101.ks"
+#       kernel_args: "inst.graphical nomodeset rd.driver.blacklist=nouveau"
+#
+# Each entry generates:
+#   - A menu item in boot.ipxe
+#   - A dedicated iPXE script: <name>.ipxe
+#
+# Required fields:
+#   - name: Unique identifier (used for filename and menu target)
+#   - label: Display text in menu
+#   - rhel_version: Must match a version in pxeboot_rhel_versions
+#
+# Optional fields:
+#   - description: Comment in generated script
+#   - kickstart: Custom kickstart filename (default: uses standard rhel<version>.ks)
+#   - kernel_args: Additional kernel arguments (default: "inst.graphical")
+#
+pxeboot_custom_entries: []
+
+##################################################
 # Test VM Configuration (for create_test_vm.yml)
 ##################################################
 

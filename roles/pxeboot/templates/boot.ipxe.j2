@@ -17,6 +17,13 @@ item --gap --             RHEL {{ rhel.version }}:
 item rhel{{ rhel.version | replace('.', '') }}-{{ mode.name }}         RHEL {{ rhel.version }} ({{ mode.label }})
 {% endfor %}
 {% endfor %}
+{% if pxeboot_custom_entries | length > 0 %}
+item --gap --             ──────────────────────────────────
+item --gap --             Host-Specific:
+{% for entry in pxeboot_custom_entries %}
+item {{ entry.name }}         {{ entry.label }}
+{% endfor %}
+{% endif %}
 item --gap --             ──────────────────────────────────
 item --gap --             Utilities:
 item shell                iPXE Shell
@@ -29,6 +36,11 @@ choose --default {{ pxeboot_default_option }} --timeout {{ pxeboot_menu_timeout 
 chain rhel-{{ rhel.version | replace('.', '') }}-{{ mode.name }}.ipxe || goto error
 
 {% endfor %}
+{% endfor %}
+{% for entry in pxeboot_custom_entries %}
+:{{ entry.name }}
+chain {{ entry.name }}.ipxe || goto error
+
 {% endfor %}
 :shell
 shell

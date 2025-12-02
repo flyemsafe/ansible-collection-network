@@ -1,0 +1,50 @@
+#!ipxe
+
+###############################################################################
+# {{ entry.label }}
+# {{ entry.description | default('Custom boot entry') }}
+# Managed by Ansible - Modifications will be overwritten
+###############################################################################
+
+echo ====================================
+echo {{ entry.label }}
+echo ====================================
+echo
+echo Repository: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}
+{% if entry.kickstart is defined %}
+echo Kickstart: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/{{ entry.kickstart }}
+{% else %}
+echo Kickstart: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/rhel{{ rhel.version | replace('.', '') }}.ks
+{% endif %}
+{% if pxeboot_enable_sshd %}
+echo SSH: Enabled (ssh root@<ip>)
+{% endif %}
+{% if pxeboot_enable_vnc %}
+echo VNC: Enabled (vnc://<ip>:5901)
+{% endif %}
+echo
+echo Downloading kernel and initrd...
+echo
+
+kernel http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.kernel_path }} inst.stage2=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }} inst.repo=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}{% if entry.kickstart is defined %} inst.ks=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/{{ entry.kickstart }}{% elif pxeboot_enable_kickstart %} inst.ks=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/rhel{{ rhel.version | replace('.', '') }}.ks{% endif %}{% if pxeboot_enable_sshd %} inst.sshd{% endif %}{% if pxeboot_enable_vnc %} inst.vnc{% endif %} ip=dhcp {{ entry.kernel_args | default('inst.graphical') }} || goto error
+
+initrd http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.initrd_path }} || goto error
+boot
+
+:error
+echo
+echo ============================================
+echo Error: Failed to load {{ entry.label }}
+echo ============================================
+echo
+echo Troubleshooting:
+echo   1. Verify kernel exists: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.kernel_path }}
+echo   2. Verify initrd exists: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.initrd_path }}
+{% if entry.kickstart is defined %}
+echo   3. Verify kickstart exists: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/{{ entry.kickstart }}
+{% endif %}
+echo   4. Check network connectivity
+echo
+echo Press any key to return to menu...
+prompt
+chain boot.ipxe

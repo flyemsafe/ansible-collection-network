@@ -105,6 +105,21 @@
     rhel: "{{ item }}"
   when: pxeboot_enable_kickstart
 
+- name: Template custom boot entries
+  ansible.builtin.template:
+    src: custom-entry.ipxe.j2
+    dest: "{{ pxeboot_menus_dir }}/{{ item.name }}.ipxe"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+  loop: "{{ pxeboot_custom_entries }}"
+  loop_control:
+    label: "{{ item.label }}"
+  vars:
+    entry: "{{ item }}"
+    rhel: "{{ pxeboot_rhel_versions | selectattr('version', 'equalto', item.rhel_version) | first }}"
+  when: pxeboot_custom_entries | length > 0
+
 - name: Build container image (rootless)
   containers.podman.podman_image:
     name: "{{ pxeboot_image_name }}"
