@@ -7,13 +7,17 @@ echo "======================================"
 echo ""
 echo "Configuration: /etc/kea/kea-dhcp4.conf"
 echo "Lease Database: /var/lib/kea/kea-leases4.csv"
-echo "Control Socket: /tmp/kea-dhcp4-ctrl.sock"
+echo "Control Socket: /run/kea/kea-dhcp4-ctrl.sock"
 echo ""
 echo "PXE Boot:"
 echo "  Next Server: {{ kea_pxe_next_server }}"
 echo "  BIOS Boot File: {{ kea_pxe_boot_file_bios }}"
 echo "  UEFI Boot File: {{ kea_pxe_boot_file_uefi }}"
 echo ""
+
+# Create control socket directory
+mkdir -p /run/kea
+chmod 750 /run/kea
 
 # Start Kea DHCPv4 server
 exec /usr/sbin/kea-dhcp4 -c /etc/kea/kea-dhcp4.conf

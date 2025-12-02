@@ -1,0 +1,129 @@
+#!ipxe
+{{ ansible_managed | comment }}
+
+##################################################
+# RHDC - RHEL Kickstart Installation Menu
+# Provides kickstart options for RHEL 8, 9, and 10
+# Using loop-mounted DVD ISOs as repositories
+##################################################
+
+isset ${dhcp-server} && set ipparam ip=dhcp || set ipparam ip=${ip}::${gateway}:${netmask}:::none nameserver=${dns}
+set ipparam BOOTIF=${netX/mac} ${ipparam}
+
+goto ${menu} ||
+
+:rhdc_rhel_kickstart
+clear rhel_version
+clear boot_type
+clear repo_url
+set os Red Hat Enterprise Linux
+set os_arch ${arch}
+iseq ${os_arch} x86_64 && set os_arch x86_64 ||
+
+menu ${os} - Kickstart Installations
+item --gap Select RHEL Version:
+item rhel8 ${space} RHEL 8.10
+item rhel9 ${space} RHEL 9.7
+item rhel10 ${space} RHEL 10.1
+item --gap
+item return ${space} Return to custom menu
+isset ${rhel_version} || choose rhel_version || goto return
+goto ${rhel_version}
+
+:rhel8
+set rhel_version 8.10
+set repo_url http://{{ ansible_fqdn }}/rhel-8.10
+set kernel_path ${repo_url}/images/pxeboot/vmlinuz
+set initrd_path ${repo_url}/images/pxeboot/initrd.img
+goto boot_type_menu
+
+:rhel9
+set rhel_version 9.7
+set repo_url http://{{ ansible_fqdn }}/rhel-9.7
+set kernel_path ${repo_url}/images/pxeboot/vmlinuz
+set initrd_path ${repo_url}/images/pxeboot/initrd.img
+goto boot_type_menu
+
+:rhel10
+set rhel_version 10.1
+set repo_url http://{{ ansible_fqdn }}/rhel-10.1
+set kernel_path ${repo_url}/images/pxeboot/vmlinuz
+set initrd_path ${repo_url}/images/pxeboot/initrd.img
+goto boot_type_menu
+
+:boot_type_menu
+menu ${os} ${rhel_version} - Installation Type
+item --gap Boot Type:
+item graphical ${space} Graphical Install
+item text ${space} Text Install
+item kickstart ${space} Kickstart (Automated Install)
+item rescue ${space} Rescue Mode
+item --gap
+item version_back ${space} Select different version
+item return ${space} Return to custom menu
+isset ${boot_type} || choose boot_type || goto return
+goto ${boot_type}
+
+:graphical
+echo ${cls}
+echo Booting RHEL ${rhel_version} Graphical Installer...
+echo Repository: ${repo_url}
+kernel ${kernel_path} inst.repo=${repo_url} ${ipparam} inst.stage2=${repo_url}
+initrd ${initrd_path}
+boot || goto failed
+
+:text
+echo ${cls}
+echo Booting RHEL ${rhel_version} Text Installer...
+echo Repository: ${repo_url}
+kernel ${kernel_path} inst.repo=${repo_url} ${ipparam} inst.text inst.stage2=${repo_url}
+initrd ${initrd_path}
+boot || goto failed
+
+:kickstart
+echo ${cls}
+echo ${os} ${rhel_version} Kickstart Install
+echo
+echo Repository: ${repo_url}
+echo
+echo Enter kickstart file URL:
+echo (e.g., http://{{ ansible_fqdn }}/kickstarts/rhel-${rhel_version}-server.ks)
+echo
+read ks_url
+isset ${ks_url} && goto kickstart_boot || goto boot_type_menu
+
+:kickstart_boot
+echo
+echo Booting RHEL ${rhel_version} with kickstart...
+echo Kickstart: ${ks_url}
+echo Repository: ${repo_url}
+kernel ${kernel_path} inst.repo=${repo_url} inst.ks=${ks_url} ${ipparam} inst.stage2=${repo_url}
+initrd ${initrd_path}
+boot || goto failed
+
+:rescue
+echo ${cls}
+echo Booting RHEL ${rhel_version} Rescue Mode...
+echo Repository: ${repo_url}
+kernel ${kernel_path} inst.repo=${repo_url} ${ipparam} inst.rescue inst.stage2=${repo_url}
+initrd ${initrd_path}
+boot || goto failed
+
+:version_back
+clear boot_type
+goto rhdc_rhel_kickstart
+
+:return
+chain ../custom/custom.ipxe
+
+:failed
+echo
+echo Boot failed!
+echo
+echo Troubleshooting:
+echo - Verify ISOs are mounted: systemctl status 'srv-rhel\\x2disos-*.mount'
+echo - Check HTTP access: curl http://{{ ansible_fqdn }}/rhel-${rhel_version}/
+echo - Verify kernel/initrd exist in images/pxeboot/ directory
+echo
+prompt Press any key to return to menu...
+goto boot_type_menu

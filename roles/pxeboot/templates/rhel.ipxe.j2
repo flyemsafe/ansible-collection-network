@@ -1,35 +1,43 @@
 #!ipxe
 
 ###############################################################################
-# RHEL {{ item.version }} PXE Boot
-# Local repository: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}
+# RHEL {{ rhel.version }} PXE Boot - {{ mode.label }}
+# {{ mode.description }}
 # Managed by Ansible - Modifications will be overwritten
 ###############################################################################
 
 echo ====================================
-echo RHEL {{ item.version }} Network Installation
+echo RHEL {{ rhel.version }} - {{ mode.label }}
 echo ====================================
 echo
-echo Repository: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}
-echo Kernel: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.kernel_path }}
-echo Initrd: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.initrd_path }}
+echo Repository: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}
+{% if pxeboot_enable_kickstart %}
+echo Kickstart: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/rhel{{ rhel.version | replace('.', '') }}.ks
+{% endif %}
+{% if pxeboot_enable_sshd %}
+echo SSH: Enabled (ssh root@<ip>)
+{% endif %}
+{% if pxeboot_enable_vnc %}
+echo VNC: Enabled (vnc://<ip>:5901)
+{% endif %}
 echo
 echo Downloading kernel and initrd...
 echo
 
-kernel http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.kernel_path }} inst.repo=http://{{ pxeboot_server_ip }}/{{ item.iso_dir }} inst.stage2=http://{{ pxeboot_server_ip }}/{{ item.iso_dir }} || goto error
-initrd http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.initrd_path }} || goto error
+kernel http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.kernel_path }} inst.stage2=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }} inst.repo=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}{% if pxeboot_enable_kickstart %} inst.ks=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/rhel{{ rhel.version | replace('.', '') }}.ks{% endif %}{% if pxeboot_enable_sshd %} inst.sshd{% endif %}{% if pxeboot_enable_vnc %} inst.vnc{% endif %} ip=dhcp{% if mode.kernel_args %} {{ mode.kernel_args }}{% endif %}{% if mode.name == 'basic' %} console=ttyS0,115200n8 console=tty0{% else %} console=tty0 console=ttyS0,115200n8{% endif %} || goto error
+
+initrd http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.initrd_path }} || goto error
 boot
 
 :error
 echo
 echo ============================================
-echo Error: Failed to load RHEL {{ item.version }} installer
+echo Error: Failed to load RHEL {{ rhel.version }} installer
 echo ============================================
 echo
 echo Troubleshooting:
-echo   1. Verify kernel exists: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.kernel_path }}
-echo   2. Verify initrd exists: http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.initrd_path }}
+echo   1. Verify kernel exists: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.kernel_path }}
+echo   2. Verify initrd exists: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}/{{ rhel.initrd_path }}
 echo   3. Check network connectivity
 echo
 echo Press any key to return to menu...

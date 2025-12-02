@@ -2,7 +2,7 @@
 # Firewall Management Module Entry Point
 #
 # This module manages pfSense firewall configuration including aliases and rules.
-# Currently uses PHP shell as pfSense REST API doesn't yet support firewall configuration.
+# Uses pfSense REST API v2 for reliable, idempotent configuration management.
 
 - name: Display firewall management plan
   ansible.builtin.debug:
@@ -14,7 +14,7 @@
 
 # Alias Management
 - name: Configure firewall aliases
-  ansible.builtin.include_tasks: aliases.yml
+  ansible.builtin.include_tasks: aliases_api.yml
   loop: "{{ pfsense_firewall_aliases }}"
   loop_control:
     loop_var: alias
@@ -24,7 +24,7 @@
 
 # Rule Management
 - name: Configure firewall rules
-  ansible.builtin.include_tasks: rules.yml
+  ansible.builtin.include_tasks: rules_api.yml
   loop: "{{ pfsense_firewall_rules }}"
   loop_control:
     loop_var: rule

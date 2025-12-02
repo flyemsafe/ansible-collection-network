@@ -1,0 +1,36 @@
+#!ipxe
+
+###############################################################################
+# RHDC PXE Boot - Init Script
+# Managed by Ansible - Modifications will be overwritten
+#
+# CRITICAL: iPXE does NOT inherit network configuration from UEFI PXE stack.
+# We must run DHCP to get an IP address before fetching any files.
+###############################################################################
+
+# Initialize network (get DHCP lease)
+# This is REQUIRED - iPXE doesn't inherit UEFI's DHCP lease
+dhcp || goto retry_dhcp
+
+# Chain to boot menu (TFTP first, HTTP fallback)
+chain boot.ipxe || chain http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/boot.ipxe || goto error
+
+:retry_dhcp
+echo Network initialization failed, retrying...
+sleep 3
+dhcp || goto error
+chain boot.ipxe || goto error
+
+:error
+echo
+echo ============================================
+echo ERROR: Failed to load boot menu
+echo ============================================
+echo
+echo Troubleshooting:
+echo   1. Check network connectivity (ifstat)
+echo   2. Verify DHCP server is running
+echo   3. Verify TFTP server is accessible ({{ pxeboot_server_ip }}:69)
+echo   4. Verify HTTP server is accessible ({{ pxeboot_server_ip }}:{{ pxeboot_http_port }})
+echo
+shell

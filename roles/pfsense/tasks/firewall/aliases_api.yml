@@ -1,0 +1,63 @@
+---
+# Configure Firewall Alias via REST API
+#
+# This task creates or updates a firewall alias using the pfSense REST API.
+# Aliases are used to group IPs, networks, or ports for use in firewall rules.
+#
+# Variables required (from alias loop variable):
+#   - name:      Alias name (e.g., "INTERNAL_NETWORKS")
+#   - type:      Alias type: "host", "network", "port"
+#   - addresses: List of addresses/ports
+#   - descr:     Description (optional)
+
+- name: Display alias configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring alias via API: {{ alias.name }}"
+      - "Type: {{ alias.type }}"
+      - "Addresses: {{ alias.addresses | join(', ') }}"
+  when: ansible_verbosity >= 1
+
+# Prepare detail field (must be array matching address count)
+- name: Prepare alias detail field
+  ansible.builtin.set_fact:
+    _alias_detail_array: "{{ alias.addresses | map('regex_replace', '^.*$', alias.detail | default('Managed by Ansible')) | list }}"
+
+# Check if alias already exists
+- name: Check if alias exists
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/firewall/alias?name={{ alias.name }}"
+    method: GET
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    status_code: [200, 404]
+  register: _alias_check
+  failed_when: false
+
+- name: Create or update alias via API
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/firewall/alias"
+    method: "{{ 'PATCH' if _alias_check.status == 200 else 'POST' }}"
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    body_format: json
+    body:
+      name: "{{ alias.name }}"
+      type: "{{ alias.type }}"
+      address: "{{ alias.addresses }}"
+      descr: "{{ alias.descr | default('Configured via Ansible') }}"
+      detail: "{{ _alias_detail_array }}"
+    status_code: [200, 201]
+  register: _alias_result
+
+- name: Display alias configuration result
+  ansible.builtin.debug:
+    msg:
+      - "Alias configuration: SUCCESS"
+      - "Alias: {{ alias.name }}"
+      - "Type: {{ alias.type }}"
+      - "Action: {{ 'UPDATED' if _alias_check.status == 200 else 'CREATED' }}"
+      - "ID: {{ _alias_result.json.data.id }}"
+  when: ansible_verbosity >= 0

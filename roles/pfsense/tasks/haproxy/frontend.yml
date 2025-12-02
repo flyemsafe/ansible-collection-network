@@ -13,6 +13,8 @@
 #   - ssl:          Enable SSL/TLS (default: false)
 #   - certificate:  SSL certificate name from pfSense (required if ssl: true)
 #   - default_backend: Default backend name (optional)
+#   - advanced:     Custom HAProxy configuration for frontend (e.g., X-Forwarded headers)
+#   - advanced_bind: Custom bind configuration (e.g., "alpn http/1.1" to disable HTTP/2)
 #   - acls:         List of ACL definitions for routing
 #     - name:       ACL name
 #     - expression: ACL expression type (e.g., "hdr(host)", "path_beg")
@@ -28,6 +30,8 @@
       - "Bind: {{ frontend.bind }}"
       - "Mode: {{ frontend.mode | default('http') }}"
       - "SSL: {{ frontend.ssl | default(false) }}"
+      - "Advanced: {{ frontend.advanced | default('(not defined)') }}"
+      - "Advanced Bind: {{ frontend.advanced_bind | default('(not defined)') }}"
       - "ACLs: {{ frontend.acls | default([]) | length }}"
       - "Actions: {{ frontend.actions | default([]) | length }}"
   when: ansible_verbosity >= 1
@@ -47,15 +51,26 @@
 # Prepare frontend configuration body
 - name: Prepare frontend configuration
   ansible.builtin.set_fact:
-    _frontend_config:
+    _frontend_config: "{{ _base_config | combine(_optional_config) }}"
+  vars:
+    _base_config:
       name: "{{ frontend.name }}"
       bind: "{{ frontend.bind }}"
       mode: "{{ frontend.mode | default('http') }}"
       ssl: "{{ frontend.ssl | default(false) }}"
-      sslcert: "{{ frontend.certificate if (frontend.ssl | default(false)) else omit }}"
-      default_backend: "{{ frontend.default_backend | default(omit) }}"
       acls: "{{ frontend.acls | default([]) }}"
       actions: "{{ frontend.actions | default([]) }}"
+    _optional_config: "{{ {}
+      | combine({'sslcert': frontend.certificate} if (frontend.ssl | default(false) and frontend.certificate is defined) else {})
+      | combine({'default_backend': frontend.default_backend} if frontend.default_backend is defined else {})
+      | combine({'advanced': frontend.advanced} if frontend.advanced is defined and frontend.advanced | length > 0 else {})
+      | combine({'advanced_bind': frontend.advanced_bind} if frontend.advanced_bind is defined and frontend.advanced_bind | length > 0 else {})
+    }}"
+
+- name: Debug prepared frontend config
+  ansible.builtin.debug:
+    var: _frontend_config
+  when: ansible_verbosity >= 1
 
 # Try to create frontend with POST
 - name: Try to create HAProxy frontend
@@ -181,6 +196,18 @@
     - _frontend_create_result.status == 400
     - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
     - _frontend_id is defined
+
+# Debug: Show what we're sending to the API
+- name: Debug frontend update payload
+  ansible.builtin.debug:
+    msg:
+      - "Updating frontend with payload:"
+      - "{{ _frontend_config | combine({'id': _frontend_id | int, 'ha_acls': _merged_acls, 'a_actionitems': _merged_actions}) }}"
+  when:
+    - _frontend_create_result.status == 400
+    - _frontend_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+    - _frontend_id is defined
+    - ansible_verbosity >= 1
 
 # Update frontend with merged configuration
 - name: Update existing HAProxy frontend

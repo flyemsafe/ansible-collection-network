@@ -1,0 +1,10 @@
+---
+##################################################
+# RHDC PXE Boot Server - Handlers
+##################################################
+
+- name: Restart pxeboot service
+  ansible.builtin.systemd:
+    name: "{{ pxeboot_service_name }}.service"
+    state: restarted
+    daemon_reload: true

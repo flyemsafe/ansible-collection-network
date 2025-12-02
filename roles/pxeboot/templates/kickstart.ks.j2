@@ -1,0 +1,62 @@
+# RHDC Kickstart - RHEL {{ rhel.version }}
+# Pre-sets installation source and user accounts
+# Disk partitioning and network remain interactive
+# Managed by Ansible - Modifications will be overwritten
+
+###############################################################################
+# Installation Source
+###############################################################################
+# HTTP repository from PXE server
+url --url=http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ rhel.iso_dir }}
+
+###############################################################################
+# System Configuration
+###############################################################################
+# Timezone
+timezone {{ pxeboot_timezone }} --utc
+
+# Use graphical install
+graphical
+
+{% if pxeboot_accept_eula %}
+# Accept EULA
+eula --agreed
+{% endif %}
+
+{% if pxeboot_firstboot_disable %}
+# Don't run the Setup Agent on first boot
+firstboot --disable
+{% endif %}
+
+###############################################################################
+# User Accounts
+###############################################################################
+{% if pxeboot_root_password_hash %}
+# Root password (encrypted)
+rootpw --iscrypted {{ pxeboot_root_password_hash }}
+{% endif %}
+
+{% if pxeboot_default_user.password_hash %}
+# Default admin user
+user --groups={{ pxeboot_default_user.groups }} --name={{ pxeboot_default_user.name }} --password={{ pxeboot_default_user.password_hash }} --iscrypted --gecos="{{ pxeboot_default_user.gecos }}"
+{% endif %}
+
+# SSH password for installation (temporary access during install)
+sshpw --username=root --plaintext {{ pxeboot_install_ssh_password }}
+
+###############################################################################
+# Package Selection
+###############################################################################
+%packages
+{{ pxeboot_packages_environment }}
+%end
+
+###############################################################################
+# Post-Installation Script
+###############################################################################
+%post --log=/root/ks-post.log
+# Log kickstart completion
+echo "Kickstart installation completed at $(date)" >> /root/ks-post.log
+echo "Hostname: $(hostname)" >> /root/ks-post.log
+echo "IP Address: $(hostname -I)" >> /root/ks-post.log
+%end

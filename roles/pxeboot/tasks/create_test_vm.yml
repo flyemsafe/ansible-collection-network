@@ -1,0 +1,117 @@
+---
+##################################################
+# RHDC PXE Boot Server - Create Test VM
+##################################################
+#
+# Run with: ansible-playbook ... --tags pxeboot_test_vm
+#
+# Creates a test VM on a KVM host to verify PXE boot functionality.
+# The VM is configured to boot from network first.
+#
+# Required variables:
+#   pxeboot_test_vm_host: KVM host to create VM on
+#
+# Optional variables:
+#   pxeboot_test_vm_name: VM name (default: pxe-test-vm)
+#   pxeboot_test_vm_ram: RAM in MB (default: 2048)
+#   pxeboot_test_vm_vcpus: vCPUs (default: 2)
+#   pxeboot_test_vm_disk: Disk size (default: 10G)
+#   pxeboot_test_vm_network: Libvirt network (default: qubibr0)
+#
+##################################################
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - pxeboot_test_vm_host is defined
+    fail_msg: "pxeboot_test_vm_host must be defined (e.g., kvmzfs01)"
+
+- name: Set test VM defaults
+  ansible.builtin.set_fact:
+    _vm_name: "{{ pxeboot_test_vm_name | default('pxe-test-vm') }}"
+    _vm_ram: "{{ pxeboot_test_vm_ram | default(2048) }}"
+    _vm_vcpus: "{{ pxeboot_test_vm_vcpus | default(2) }}"
+    _vm_disk: "{{ pxeboot_test_vm_disk | default('10G') }}"
+    _vm_network: "{{ pxeboot_test_vm_network | default('qubibr0') }}"
+    _vm_disk_path: "/var/lib/libvirt/images/nvme/{{ pxeboot_test_vm_name | default('pxe-test-vm') }}.qcow2"
+
+- name: Check if VM already exists
+  ansible.builtin.command:
+    cmd: "virsh list --all --name"
+  register: existing_vms
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  changed_when: false
+  become: true
+
+- name: Fail if VM already exists
+  ansible.builtin.fail:
+    msg: |
+      VM '{{ _vm_name }}' already exists on {{ pxeboot_test_vm_host }}.
+
+      To remove it:
+        ssh {{ pxeboot_test_vm_host }} "sudo virsh destroy {{ _vm_name }}; sudo virsh undefine {{ _vm_name }}"
+        ssh {{ pxeboot_test_vm_host }} "sudo rm -f {{ _vm_disk_path }}"
+  when: _vm_name in existing_vms.stdout_lines
+
+- name: Create disk image
+  ansible.builtin.command:
+    cmd: "qemu-img create -f qcow2 {{ _vm_disk_path }} {{ _vm_disk }}"
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  become: true
+
+- name: Create VM with PXE boot
+  ansible.builtin.command:
+    cmd: >-
+      virt-install
+      --name {{ _vm_name }}
+      --ram {{ _vm_ram }}
+      --vcpus {{ _vm_vcpus }}
+      --disk path={{ _vm_disk_path }},format=qcow2,bus=virtio
+      --network network={{ _vm_network }},model=virtio
+      --os-variant rhel9.0
+      --graphics vnc,listen=0.0.0.0
+      --noautoconsole
+      --boot network,hd
+      --pxe
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  become: true
+
+- name: Get VNC display port
+  ansible.builtin.command:
+    cmd: "virsh vncdisplay {{ _vm_name }}"
+  register: vnc_display
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  changed_when: false
+  become: true
+
+- name: Display test VM information
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "PXE Test VM Created Successfully"
+      - "========================================="
+      - ""
+      - "VM Configuration:"
+      - "  Name: {{ _vm_name }}"
+      - "  Host: {{ pxeboot_test_vm_host }}"
+      - "  RAM: {{ _vm_ram }} MB"
+      - "  vCPUs: {{ _vm_vcpus }}"
+      - "  Disk: {{ _vm_disk_path }} ({{ _vm_disk }})"
+      - "  Network: {{ _vm_network }}"
+      - "  Boot Order: Network (PXE), HDD"
+      - ""
+      - "VNC Access:"
+      - "  Display: {{ vnc_display.stdout }}"
+      - "  Command: vncviewer {{ pxeboot_test_vm_host }}.lab.rodhouse.net{{ vnc_display.stdout }}"
+      - ""
+      - "Expected Behavior:"
+      - "  1. VM will PXE boot from tuareg ({{ pxeboot_server_ip }})"
+      - "  2. RHDC boot menu should appear"
+      - "  3. Select RHEL version to test installation"
+      - ""
+      - "Cleanup Commands:"
+      - "  ssh {{ pxeboot_test_vm_host }} 'sudo virsh destroy {{ _vm_name }}'"
+      - "  ssh {{ pxeboot_test_vm_host }} 'sudo virsh undefine {{ _vm_name }}'"
+      - "  ssh {{ pxeboot_test_vm_host }} 'sudo rm -f {{ _vm_disk_path }}'"
+      - ""
+      - "========================================="

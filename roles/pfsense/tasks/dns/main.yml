@@ -1,0 +1,58 @@
+---
+# DNS Management Tasks
+#
+# This task file manages DNS host overrides via pfSense REST API.
+#
+# Variables:
+#   - pfsense_dns_host_overrides: List of DNS host override configurations
+#     - hostname:    Hostname (e.g., "inventory")
+#     - domain:      Domain (e.g., "lab.rodhouse.net")
+#     - ip:          IP address (e.g., "172.23.11.1")
+#     - description: Description (optional)
+
+- name: Validate DNS configuration prerequisites
+  ansible.builtin.assert:
+    that:
+      - _pfsense_api_available is defined
+      - _pfsense_api_available | bool
+    fail_msg: "DNS management requires pfSense REST API to be available"
+    quiet: true
+
+- name: Display DNS configuration plan
+  ansible.builtin.debug:
+    msg:
+      - "DNS Configuration Summary:"
+      - "  Host overrides to configure: {{ pfsense_dns_host_overrides | length }}"
+  when: ansible_verbosity >= 1
+
+# DNS Host Override Configuration
+- name: Include DNS host override configuration tasks
+  ansible.builtin.include_tasks: host_override.yml
+  loop: "{{ pfsense_dns_host_overrides }}"
+  loop_control:
+    loop_var: dns_override
+    label: "{{ dns_override.hostname }}.{{ dns_override.domain }}"
+  when:
+    - pfsense_dns_host_overrides is defined
+    - pfsense_dns_host_overrides | length > 0
+
+# Apply DNS configuration changes
+- name: Apply DNS configuration
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/unbound/apply"
+    method: POST
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+    status_code: [200, 201]
+  register: _dns_apply_result
+  when: pfsense_dns_host_overrides | length > 0
+
+- name: Display DNS apply result
+  ansible.builtin.debug:
+    msg:
+      - "DNS configuration applied successfully"
+      - "Unbound DNS service reloaded"
+  when:
+    - _dns_apply_result is defined
+    - _dns_apply_result.status in [200, 201]

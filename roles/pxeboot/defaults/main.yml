@@ -14,6 +14,7 @@ pxeboot_menus_dir: "{{ pxeboot_base_dir }}/menus"
 pxeboot_config_dir: "{{ pxeboot_base_dir }}/config"
 pxeboot_container_dir: "{{ pxeboot_base_dir }}/container"
 pxeboot_logs_dir: "{{ pxeboot_base_dir }}/logs"
+pxeboot_kickstarts_dir: "{{ pxeboot_base_dir }}/kickstarts"
 
 # ISO repository location (loop-mounted ISOs)
 pxeboot_iso_mount_base: /mnt/ssd/pxeboot/repos
@@ -21,12 +22,62 @@ pxeboot_iso_mount_base: /mnt/ssd/pxeboot/repos
 # Network configuration
 pxeboot_server_ip: "{{ ansible_default_ipv4.address }}"
 pxeboot_tftp_port: 69
-pxeboot_http_port: 80
+pxeboot_http_port: 8082  # Changed from 80 to avoid conflict with Traefik
 
 # Timezone
 pxeboot_timezone: America/New_York
 
-# RHEL versions to configure
+##################################################
+# Boot Options
+##################################################
+# All boot options include SSH and VNC by default
+pxeboot_enable_sshd: true
+pxeboot_enable_vnc: true
+
+# Boot modes for each RHEL version
+# All modes include inst.sshd and inst.vnc by default for remote access
+#
+# Graphics troubleshooting parameters (from research):
+# - inst.graphical: Forces graphical mode (default behavior)
+# - inst.resolution=1024x768: Set specific resolution
+# - nomodeset: Disable kernel mode setting (KMS) - most common fix
+# - i915.modeset=0: Disable Intel graphics modesetting
+# - i915.enable_psr=0: Disable Panel Self Refresh (Intel)
+# - rd.driver.blacklist=nouveau: Block nouveau driver in initramfs
+# - modprobe.blacklist=nouveau: Block nouveau during boot
+# - vga=795: Force 1280x1024 VGA mode (for older graphics)
+# - vga=normal: Force standard VGA mode
+#
+# Note: inst.xdriver and inst.usefbx are DEPRECATED and have no effect
+pxeboot_boot_modes:
+  - name: graphical
+    label: "Graphical"
+    description: "Full graphical installer (default)"
+    kernel_args: "inst.graphical inst.resolution=1024x768"
+  - name: graphical-safe
+    label: "Graphical Safe"
+    description: "Graphical with nomodeset for Intel/AMD issues"
+    kernel_args: "inst.graphical inst.resolution=1024x768 nomodeset"
+  - name: graphical-nvidia
+    label: "Graphical (NVIDIA)"
+    description: "Graphical with nouveau blacklisted for NVIDIA"
+    kernel_args: "inst.graphical inst.resolution=1024x768 nomodeset rd.driver.blacklist=nouveau modprobe.blacklist=nouveau nouveau.modeset=0"
+  - name: graphical-intel
+    label: "Graphical (Intel)"
+    description: "Graphical with Intel i915 fixes"
+    kernel_args: "inst.graphical inst.resolution=1024x768 i915.modeset=1 i915.enable_psr=0 i915.enable_fbc=0"
+  - name: text
+    label: "Text Mode"
+    description: "Text-based installer (no graphics)"
+    kernel_args: "inst.text"
+  - name: vnc-only
+    label: "VNC Only"
+    description: "Graphical via VNC only (no local display)"
+    kernel_args: "inst.graphical inst.vnc inst.vncpassword=pxeboot"
+
+##################################################
+# RHEL Versions Configuration
+##################################################
 pxeboot_rhel_versions:
   - version: "8.10"
     iso_dir: rhel-8.10
@@ -41,16 +92,66 @@ pxeboot_rhel_versions:
     kernel_path: images/pxeboot/vmlinuz
     initrd_path: images/pxeboot/initrd.img
 
-# Menu configuration
+##################################################
+# Menu Configuration
+##################################################
 pxeboot_menu_title: "Rodhouse Datacenter - PXE Boot Menu"
-pxeboot_menu_timeout: 10000  # 10 seconds (in milliseconds)
-pxeboot_default_option: rhel10
+pxeboot_menu_timeout: 300000  # 5 minutes (in milliseconds)
+pxeboot_default_option: localboot
 
-# Systemd service
+##################################################
+# Kickstart Configuration
+##################################################
+# Enable kickstart-based installation
+pxeboot_enable_kickstart: true
+
+# Root password (encrypted) - REQUIRED for kickstart
+# Generate with: python3 -c "import crypt; print(crypt.crypt('password', crypt.mksalt(crypt.METHOD_SHA512)))"
+# Override in host_vars or inventory with vault-encrypted value
+pxeboot_root_password_hash: ""
+
+# Default user configuration
+pxeboot_default_user:
+  name: radmin
+  gecos: "Rodhouse Admin"
+  groups: wheel
+  password_hash: ""  # Override with vault-encrypted value
+
+# SSH password for installation (temporary, allows SSH during install)
+pxeboot_install_ssh_password: pxeboot
+
+# Package selection environment
+pxeboot_packages_environment: "@^minimal-environment"
+
+# EULA acceptance
+pxeboot_accept_eula: true
+
+# Firstboot agent
+pxeboot_firstboot_disable: true
+
+##################################################
+# Systemd Service
+##################################################
 pxeboot_service_name: rhdc-pxeboot
 pxeboot_service_enabled: true
 pxeboot_service_state: started
 
-# Container build
+##################################################
+# Container Build
+##################################################
 pxeboot_build_container: true
 pxeboot_force_rebuild: false
+
+##################################################
+# Test VM Configuration (for create_test_vm.yml)
+##################################################
+
+# pxeboot_test_vm_host: (required) KVM host to create VM on
+# Example: kvmzfs01
+
+# Test VM defaults
+pxeboot_test_vm_name: pxe-test-vm
+pxeboot_test_vm_ram: 2048
+pxeboot_test_vm_vcpus: 2
+pxeboot_test_vm_disk: 10G
+pxeboot_test_vm_network: qubibr0

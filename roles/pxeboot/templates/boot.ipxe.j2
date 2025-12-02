@@ -2,38 +2,41 @@
 
 ###############################################################################
 # {{ pxeboot_menu_title }}
-# Simple, maintainable menu for local RHEL installations
 # Managed by Ansible - Modifications will be overwritten
+#
+# All boot options include SSH (inst.sshd) and VNC (inst.vnc) by default
+# Connect via: ssh root@<ip> or VNC viewer to <ip>:5901
 ###############################################################################
 
 :start
 menu {{ pxeboot_menu_title }}
-item --gap --             ──────────────────────────────────
-item --gap --             RHEL Network Installations:
 {% for rhel in pxeboot_rhel_versions %}
-item rhel{{ rhel.version | replace('.', '') }}{% if loop.first %}                {% endif %}Red Hat Enterprise Linux {{ rhel.version }}
+item --gap --             ──────────────────────────────────
+item --gap --             RHEL {{ rhel.version }}:
+{% for mode in pxeboot_boot_modes %}
+item rhel{{ rhel.version | replace('.', '') }}-{{ mode.name }}         RHEL {{ rhel.version }} ({{ mode.label }})
+{% endfor %}
 {% endfor %}
 item --gap --             ──────────────────────────────────
-item --gap --             Options:
+item --gap --             Utilities:
 item shell                iPXE Shell
-item reboot               Reboot
-item exit                 Exit to BIOS
-item --gap --             ──────────────────────────────────
+item localboot            Boot from Local Disk
 choose --default {{ pxeboot_default_option }} --timeout {{ pxeboot_menu_timeout }} target && goto ${target}
 
 {% for rhel in pxeboot_rhel_versions %}
-:rhel{{ rhel.version | replace('.', '') }}
-chain rhel-{{ rhel.version | replace('.', '') }}.ipxe || goto error
+{% for mode in pxeboot_boot_modes %}
+:rhel{{ rhel.version | replace('.', '') }}-{{ mode.name }}
+chain rhel-{{ rhel.version | replace('.', '') }}-{{ mode.name }}.ipxe || goto error
 
+{% endfor %}
 {% endfor %}
 :shell
 shell
+goto start
 
-:reboot
-reboot
-
-:exit
-exit
+:localboot
+echo Booting from local disk...
+exit 1
 
 :error
 echo

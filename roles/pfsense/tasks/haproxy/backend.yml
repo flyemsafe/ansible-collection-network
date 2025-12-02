@@ -67,8 +67,12 @@
         {% if backend.check_type | default('HTTP') == 'HTTP' %}
         "httpcheck_method": "{{ backend.httpcheck_method | default('GET') }}",
         "monitor_uri": "{{ backend.monitor_uri | default('/') }}",
+        {% if backend.httpcheck_version is defined %}
+        "httpcheck_version": "{{ backend.httpcheck_version }}",
+        {% endif %}
         {% endif %}
         "log_checks": {{ backend.log_checks | default(true) | lower }},
+        "email_to": "",
         "servers": {{ _backend_servers | to_json }}
       }
 

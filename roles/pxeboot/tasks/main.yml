@@ -16,6 +16,7 @@
     - "{{ pxeboot_config_dir }}"
     - "{{ pxeboot_container_dir }}"
     - "{{ pxeboot_logs_dir }}"
+    - "{{ pxeboot_kickstarts_dir }}"
 
 - name: Template Containerfile
   ansible.builtin.template:
@@ -50,6 +51,23 @@
     owner: radmin
     group: radmin
     mode: '0644'
+  notify: Restart pxeboot service
+
+- name: Template init.ipxe (DHCP initialization script)
+  ansible.builtin.template:
+    src: init.ipxe.j2
+    dest: "{{ pxeboot_menus_dir }}/init.ipxe"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+
+- name: Create autoexec.ipxe symlink to init.ipxe
+  ansible.builtin.file:
+    src: init.ipxe
+    dest: "{{ pxeboot_menus_dir }}/autoexec.ipxe"
+    state: link
+    owner: radmin
+    group: radmin
 
 - name: Template main boot.ipxe menu
   ansible.builtin.template:
@@ -59,16 +77,33 @@
     group: radmin
     mode: '0644'
 
-- name: Template RHEL-specific iPXE menus
+- name: Template RHEL-specific iPXE menus for each boot mode
   ansible.builtin.template:
     src: rhel.ipxe.j2
-    dest: "{{ pxeboot_menus_dir }}/rhel-{{ item.version | replace('.', '') }}.ipxe"
+    dest: "{{ pxeboot_menus_dir }}/rhel-{{ item.0.version | replace('.', '') }}-{{ item.1.name }}.ipxe"
+    owner: radmin
+    group: radmin
+    mode: '0644'
+  loop: "{{ pxeboot_rhel_versions | product(pxeboot_boot_modes) | list }}"
+  loop_control:
+    label: "RHEL {{ item.0.version }} - {{ item.1.label }}"
+  vars:
+    rhel: "{{ item.0 }}"
+    mode: "{{ item.1 }}"
+
+- name: Template kickstart files
+  ansible.builtin.template:
+    src: kickstart.ks.j2
+    dest: "{{ pxeboot_kickstarts_dir }}/rhel{{ item.version | replace('.', '') }}.ks"
     owner: radmin
     group: radmin
     mode: '0644'
   loop: "{{ pxeboot_rhel_versions }}"
   loop_control:
-    label: "{{ item.version }}"
+    label: "RHEL {{ item.version }}"
+  vars:
+    rhel: "{{ item }}"
+  when: pxeboot_enable_kickstart
 
 - name: Build container image (rootless)
   containers.podman.podman_image:
@@ -98,6 +133,7 @@
     group: root
     mode: '0644'
   register: systemd_service_result
+  notify: Restart pxeboot service
 
 - name: Reload systemd daemon
   ansible.builtin.systemd:
@@ -125,8 +161,13 @@
       - "RHEL Versions:"
       - "{% for rhel in pxeboot_rhel_versions %}  - RHEL {{ rhel.version }} ({{ rhel.iso_dir }})\n{% endfor %}"
       - ""
+      - "Boot Modes:"
+      - "{% for mode in pxeboot_boot_modes %}  - {{ mode.label }}: {{ mode.description }}\n{% endfor %}"
+      - ""
+      - "Kickstarts: http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/ks/"
+      - ""
       - "Test:"
       - "  echo 'get boot.ipxe /tmp/test.ipxe' | tftp {{ pxeboot_server_ip }}"
-      - "  curl -I http://{{ pxeboot_server_ip }}/{{ pxeboot_rhel_versions[0].iso_dir }}/{{ pxeboot_rhel_versions[0].kernel_path }}"
+      - "  curl -I http://{{ pxeboot_server_ip }}:{{ pxeboot_http_port }}/{{ pxeboot_rhel_versions[0].iso_dir }}/{{ pxeboot_rhel_versions[0].kernel_path }}"
       - ""
       - "PXE Boot Menu: {{ pxeboot_menu_title }}"

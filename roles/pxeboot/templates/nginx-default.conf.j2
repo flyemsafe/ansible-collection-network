@@ -1,5 +1,5 @@
 # RHDC PXE Boot Server - HTTP Configuration
-# Serves RHEL ISOs, kernels, and initrd files
+# Serves RHEL ISOs, kernels, initrd files, and kickstarts
 # Managed by Ansible - DO NOT EDIT MANUALLY
 
 server {
@@ -22,6 +22,14 @@ server {
     # Logging
     access_log /var/log/nginx/pxeboot-access.log;
     error_log /var/log/nginx/pxeboot-error.log;
+
+{% if pxeboot_enable_kickstart %}
+    # Kickstart files
+    location /ks/ {
+        alias /kickstarts/;
+        autoindex on;
+    }
+{% endif %}
 
     # Serve all files
     location / {

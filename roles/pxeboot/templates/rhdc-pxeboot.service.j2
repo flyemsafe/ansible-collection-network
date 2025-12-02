@@ -15,10 +15,14 @@ ExecStart=/usr/bin/podman run \
   --rm \
   --name {{ pxeboot_container_name }} \
   --network host \
+  --security-opt label=disable \
   -v {{ pxeboot_menus_dir }}:/tftproot:z \
   -v {{ pxeboot_config_dir }}/dnsmasq.conf:/etc/dnsmasq.conf:ro \
   -v {{ pxeboot_config_dir }}/nginx-default.conf:/etc/nginx/http.d/default.conf:ro \
   -v {{ pxeboot_iso_mount_base }}:{{ pxeboot_iso_mount_base }}:ro \
+{% if pxeboot_enable_kickstart %}
+  -v {{ pxeboot_kickstarts_dir }}:/kickstarts:ro \
+{% endif %}
   -e TZ={{ pxeboot_timezone }} \
   localhost/{{ pxeboot_image_name }}:{{ pxeboot_image_tag }}
 

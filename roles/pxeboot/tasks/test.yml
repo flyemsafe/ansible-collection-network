@@ -1,0 +1,117 @@
+---
+##################################################
+# RHDC PXE Boot Server - Testing Tasks
+##################################################
+#
+# Run with: ansible-playbook ... --tags pxeboot_test
+#
+# Tests TFTP and HTTP connectivity to verify PXE boot server
+# is functioning correctly.
+#
+##################################################
+
+- name: Test TFTP port is open
+  ansible.builtin.wait_for:
+    host: "{{ pxeboot_server_ip }}"
+    port: "{{ pxeboot_tftp_port }}"
+    timeout: 5
+    state: started
+  register: tftp_port_check
+  ignore_errors: true
+
+- name: Test HTTP port is open
+  ansible.builtin.wait_for:
+    host: "{{ pxeboot_server_ip }}"
+    port: "{{ pxeboot_http_port }}"
+    timeout: 5
+    state: started
+  register: http_port_check
+  ignore_errors: true
+
+- name: Test TFTP boot file download
+  ansible.builtin.command:
+    cmd: "tftp {{ pxeboot_server_ip }} -c get boot.ipxe /tmp/pxeboot-test-boot.ipxe"
+  register: tftp_download
+  changed_when: false
+  failed_when: false
+  delegate_to: localhost
+  become: false
+
+- name: Check TFTP downloaded file exists
+  ansible.builtin.stat:
+    path: /tmp/pxeboot-test-boot.ipxe
+  register: tftp_file_stat
+  delegate_to: localhost
+  become: false
+
+- name: Read TFTP downloaded file content
+  ansible.builtin.slurp:
+    src: /tmp/pxeboot-test-boot.ipxe
+  register: tftp_file_content
+  when: tftp_file_stat.stat.exists
+  delegate_to: localhost
+  become: false
+
+- name: Test HTTP kernel access for each RHEL version
+  ansible.builtin.uri:
+    url: "http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.kernel_path }}"
+    method: HEAD
+    status_code: [200]
+    timeout: 10
+  loop: "{{ pxeboot_rhel_versions }}"
+  loop_control:
+    label: "RHEL {{ item.version }}"
+  register: http_kernel_tests
+  ignore_errors: true
+
+- name: Test HTTP initrd access for each RHEL version
+  ansible.builtin.uri:
+    url: "http://{{ pxeboot_server_ip }}/{{ item.iso_dir }}/{{ item.initrd_path }}"
+    method: HEAD
+    status_code: [200]
+    timeout: 10
+  loop: "{{ pxeboot_rhel_versions }}"
+  loop_control:
+    label: "RHEL {{ item.version }}"
+  register: http_initrd_tests
+  ignore_errors: true
+
+- name: Cleanup test file
+  ansible.builtin.file:
+    path: /tmp/pxeboot-test-boot.ipxe
+    state: absent
+  delegate_to: localhost
+  become: false
+
+- name: Display test results
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "RHDC PXE Boot Server Test Results"
+      - "========================================="
+      - ""
+      - "Server: {{ pxeboot_server_ip }}"
+      - ""
+      - "Port Tests:"
+      - "  TFTP ({{ pxeboot_tftp_port }}): {{ 'PASS' if not tftp_port_check.failed else 'FAIL' }}"
+      - "  HTTP ({{ pxeboot_http_port }}): {{ 'PASS' if not http_port_check.failed else 'FAIL' }}"
+      - ""
+      - "TFTP Download Test:"
+      - "  boot.ipxe: {{ 'PASS (' ~ tftp_file_stat.stat.size ~ ' bytes)' if tftp_file_stat.stat.exists else 'FAIL' }}"
+      - "  Content valid: {{ 'PASS' if tftp_file_stat.stat.exists and '#!ipxe' in (tftp_file_content.content | default('') | b64decode) else 'FAIL or SKIPPED' }}"
+      - ""
+      - "HTTP Kernel Tests:"
+      - "{% for result in http_kernel_tests.results %}  RHEL {{ result.item.version }}: {{ 'PASS' if result.status == 200 else 'FAIL (' ~ (result.msg | default('unknown error')) ~ ')' }}\n{% endfor %}"
+      - ""
+      - "HTTP Initrd Tests:"
+      - "{% for result in http_initrd_tests.results %}  RHEL {{ result.item.version }}: {{ 'PASS' if result.status == 200 else 'FAIL (' ~ (result.msg | default('unknown error')) ~ ')' }}\n{% endfor %}"
+      - ""
+      - "========================================="
+
+- name: Set test result fact
+  ansible.builtin.set_fact:
+    pxeboot_test_passed: >-
+      {{ not tftp_port_check.failed and
+         not http_port_check.failed and
+         tftp_file_stat.stat.exists and
+         http_kernel_tests.results | selectattr('status', 'equalto', 200) | list | length == pxeboot_rhel_versions | length }}

@@ -1,0 +1,57 @@
+#!/bin/sh
+pfSsh.php <<'PHPEOF'
+require_once("filter.inc");
+$config = parse_config(true);
+
+// Initialize aliases array if it doesn't exist
+if (!isset($config['aliases']['alias'])) {
+    $config['aliases']['alias'] = array();
+}
+
+// Prepare address list
+$addresses = explode(' ', '{{ _alias_addresses }}');
+$address_str = implode(' ', $addresses);
+
+// Check if alias exists
+$found = false;
+$alias_name = '{{ alias.name }}';
+
+foreach ($config['aliases']['alias'] as $idx => $existing_alias) {
+    if ($existing_alias['name'] == $alias_name) {
+        $found = true;
+        // Update existing alias
+        $config['aliases']['alias'][$idx] = array(
+            'name' => '{{ alias.name }}',
+            'type' => '{{ alias.type }}',
+            'address' => $address_str,
+            'descr' => '{{ _alias_descr }}',
+            'detail' => '{{ _alias_detail }}'
+        );
+        echo "UPDATED: Alias {{ alias.name }}\n";
+        break;
+    }
+}
+
+// Add new alias if not found
+if (!$found) {
+    $new_alias = array(
+        'name' => '{{ alias.name }}',
+        'type' => '{{ alias.type }}',
+        'address' => $address_str,
+        'descr' => '{{ _alias_descr }}',
+        'detail' => '{{ _alias_detail }}'
+    );
+    $config['aliases']['alias'][] = $new_alias;
+    echo "ADDED: Alias {{ alias.name }}\n";
+}
+
+// Save configuration
+write_config("Configured firewall alias {{ alias.name }} via Ansible");
+
+// Reload filter (firewall rules)
+filter_configure();
+
+echo "SUCCESS: Alias {{ alias.name }} configured\n";
+echo "  Type: {{ alias.type }}\n";
+echo "  Addresses: " . $address_str . "\n";
+PHPEOF

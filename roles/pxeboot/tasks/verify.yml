@@ -1,0 +1,105 @@
+---
+##################################################
+# RHDC PXE Boot Server - Verification Tasks
+##################################################
+#
+# Run with: ansible-playbook ... --tags pxeboot_verify
+#
+# Verifies all components of the PXE boot infrastructure:
+# - Service status
+# - Container health
+# - ISO mounts
+# - Disk space
+# - Configuration files
+#
+##################################################
+
+- name: Check rhdc-pxeboot service status
+  ansible.builtin.systemd:
+    name: "{{ pxeboot_service_name }}.service"
+  register: service_status
+
+- name: Check container is running
+  ansible.builtin.command:
+    cmd: "podman ps --filter name={{ pxeboot_container_name }} --format '{{ '{{' }}.Status{{ '}}' }}'"
+  register: container_status
+  changed_when: false
+  become: true
+
+- name: Check ISO mount points
+  ansible.builtin.stat:
+    path: "{{ pxeboot_iso_mount_base }}/{{ item.iso_dir }}"
+  loop: "{{ pxeboot_rhel_versions }}"
+  loop_control:
+    label: "{{ item.iso_dir }}"
+  register: iso_mount_checks
+
+- name: Check kernel files exist
+  ansible.builtin.stat:
+    path: "{{ pxeboot_iso_mount_base }}/{{ item.iso_dir }}/{{ item.kernel_path }}"
+  loop: "{{ pxeboot_rhel_versions }}"
+  loop_control:
+    label: "RHEL {{ item.version }}"
+  register: kernel_checks
+
+- name: Check ZFS dataset status
+  ansible.builtin.command:
+    cmd: "zfs list -o name,used,avail,mountpoint tuareg_ssd/pxeboot"
+  register: zfs_status
+  changed_when: false
+  failed_when: false
+
+- name: Check configuration files exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ pxeboot_config_dir }}/dnsmasq.conf"
+    - "{{ pxeboot_config_dir }}/nginx-default.conf"
+    - "{{ pxeboot_menus_dir }}/boot.ipxe"
+  register: config_checks
+
+- name: Get recent service logs
+  ansible.builtin.command:
+    cmd: "journalctl -u {{ pxeboot_service_name }}.service -n 10 --no-pager"
+  register: service_logs
+  changed_when: false
+  failed_when: false
+
+- name: Display verification results
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "RHDC PXE Boot Infrastructure Verification"
+      - "========================================="
+      - ""
+      - "Service Status:"
+      - "  Name: {{ pxeboot_service_name }}.service"
+      - "  State: {{ service_status.status.ActiveState | default('unknown') }}"
+      - "  Enabled: {{ service_status.status.UnitFileState | default('unknown') }}"
+      - ""
+      - "Container Status:"
+      - "  {{ container_status.stdout | default('Not running') }}"
+      - ""
+      - "ZFS Dataset:"
+      - "{{ zfs_status.stdout | default('Not found') }}"
+      - ""
+      - "ISO Mounts:"
+      - "{% for result in iso_mount_checks.results %}  {{ result.item.iso_dir }}: {{ 'MOUNTED' if result.stat.exists else 'NOT FOUND' }}\n{% endfor %}"
+      - ""
+      - "Kernel Files:"
+      - "{% for result in kernel_checks.results %}  RHEL {{ result.item.version }}: {{ 'PRESENT' if result.stat.exists else 'MISSING' }}\n{% endfor %}"
+      - ""
+      - "Configuration Files:"
+      - "{% for result in config_checks.results %}  {{ result.item | basename }}: {{ 'PRESENT' if result.stat.exists else 'MISSING' }}\n{% endfor %}"
+      - ""
+      - "Recent Logs:"
+      - "{{ service_logs.stdout_lines | default(['No logs available']) | join('\n') }}"
+      - ""
+      - "========================================="
+
+- name: Set verification result fact
+  ansible.builtin.set_fact:
+    pxeboot_verify_passed: >-
+      {{ service_status.status.ActiveState == 'active' and
+         container_status.stdout | length > 0 and
+         kernel_checks.results | selectattr('stat.exists') | list | length == pxeboot_rhel_versions | length }}

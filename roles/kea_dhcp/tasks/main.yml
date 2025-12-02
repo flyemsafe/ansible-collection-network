@@ -89,10 +89,7 @@
       - "  BIOS: {{ kea_pxe_boot_file_bios }}"
       - "  UEFI: {{ kea_pxe_boot_file_uefi }}"
       - ""
-      - "Subnets:"
-{% for subnet in kea_subnets %}
-      - "  - {{ subnet.subnet }} (gateway: {{ subnet.gateway }})"
-{% endfor %}
+      - "Subnets: {{ kea_subnets | map(attribute='subnet') | join(', ') }}"
       - ""
       - "Verification:"
       - "  sudo systemctl status rhdc-kea-dhcp.service"

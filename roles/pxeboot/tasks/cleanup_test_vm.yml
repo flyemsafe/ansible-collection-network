@@ -1,0 +1,71 @@
+---
+##################################################
+# RHDC PXE Boot Server - Cleanup Test VM
+##################################################
+#
+# Run with: ansible-playbook ... --tags pxeboot_cleanup_vm
+#
+# Removes a PXE boot test VM created by create_test_vm.yml
+#
+# Required variables:
+#   pxeboot_test_vm_host: KVM host where VM exists
+#
+# Optional variables:
+#   pxeboot_test_vm_name: VM name (default: pxe-test-vm)
+#
+##################################################
+
+- name: Validate required variables
+  ansible.builtin.assert:
+    that:
+      - pxeboot_test_vm_host is defined
+    fail_msg: "pxeboot_test_vm_host must be defined (e.g., kvmzfs01)"
+
+- name: Set test VM defaults
+  ansible.builtin.set_fact:
+    _vm_name: "{{ pxeboot_test_vm_name | default('pxe-test-vm') }}"
+    _vm_disk_path: "/var/lib/libvirt/images/nvme/{{ pxeboot_test_vm_name | default('pxe-test-vm') }}.qcow2"
+
+- name: Check if VM exists
+  ansible.builtin.command:
+    cmd: "virsh list --all --name"
+  register: existing_vms
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  changed_when: false
+  become: true
+
+- name: Stop VM if running
+  ansible.builtin.command:
+    cmd: "virsh destroy {{ _vm_name }}"
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  become: true
+  when: _vm_name in existing_vms.stdout_lines
+  failed_when: false
+
+- name: Undefine VM
+  ansible.builtin.command:
+    cmd: "virsh undefine {{ _vm_name }}"
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  become: true
+  when: _vm_name in existing_vms.stdout_lines
+
+- name: Remove disk image
+  ansible.builtin.file:
+    path: "{{ _vm_disk_path }}"
+    state: absent
+  delegate_to: "{{ pxeboot_test_vm_host }}"
+  become: true
+
+- name: Display cleanup results
+  ansible.builtin.debug:
+    msg:
+      - "========================================="
+      - "PXE Test VM Cleanup Complete"
+      - "========================================="
+      - ""
+      - "Removed:"
+      - "  VM: {{ _vm_name }}"
+      - "  Host: {{ pxeboot_test_vm_host }}"
+      - "  Disk: {{ _vm_disk_path }}"
+      - ""
+      - "========================================="

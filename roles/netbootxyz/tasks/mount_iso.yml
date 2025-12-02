@@ -1,0 +1,62 @@
+---
+##################################################
+# netboot.xyz Role - ISO Loop Mount Management
+##################################################
+# Manages systemd mount units for loop-mounting
+# RHEL ISOs to make them available as HTTP repositories
+# for kickstart installations
+##################################################
+
+- name: Ensure mount point directories exist
+  ansible.builtin.file:
+    path: "{{ item.mount_point }}"
+    state: directory
+    owner: "{{ netbootxyz_file_owner }}"
+    group: "{{ netbootxyz_file_group }}"
+    mode: '0755'
+  loop: "{{ netbootxyz_iso_mounts }}"
+  when: netbootxyz_iso_mounts | length > 0
+
+- name: Generate systemd unit names for ISOs
+  ansible.builtin.shell: "systemd-escape -p --suffix=mount '{{ item.mount_point }}'"
+  loop: "{{ netbootxyz_iso_mounts }}"
+  when: netbootxyz_iso_mounts | length > 0
+  register: systemd_unit_names
+  changed_when: false
+
+- name: Create systemd mount units for ISOs
+  ansible.builtin.template:
+    src: iso-mount.mount.j2
+    dest: "/etc/systemd/system/{{ item.stdout }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ systemd_unit_names.results }}"
+  when: netbootxyz_iso_mounts | length > 0
+  register: mount_units
+
+- name: Reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  when: mount_units.changed
+
+- name: Enable and start ISO mount units
+  ansible.builtin.systemd:
+    name: "{{ item.stdout }}"
+    enabled: yes
+    state: started
+  loop: "{{ systemd_unit_names.results }}"
+  when: netbootxyz_iso_mounts | length > 0
+
+- name: Display mounted ISO repositories
+  ansible.builtin.debug:
+    msg: |
+      ✅ ISO Repositories Mounted:
+      {% for iso in netbootxyz_iso_mounts %}
+      - {{ iso.name }}:
+        ISO: {{ iso.iso_path }}
+        Mount: {{ iso.mount_point }}
+        HTTP: http://{{ ansible_fqdn }}/{{ iso.mount_point | basename }}
+        Kickstart: inst.repo=http://{{ ansible_fqdn }}/{{ iso.mount_point | basename }}
+      {% endfor %}
+  when: netbootxyz_iso_mounts | length > 0

@@ -1,0 +1,84 @@
+---
+# Configure DNS Host Override via REST API
+#
+# This task creates or updates a DNS host override using the pfSense REST API.
+#
+# Variables required (from dns_override loop variable):
+#   - hostname:    Hostname (e.g., "inventory")
+#   - domain:      Domain (e.g., "lab.rodhouse.net")
+#   - ip:          IP address (e.g., "172.23.11.1")
+#
+# Variables optional:
+#   - description: Description (optional)
+
+- name: Display DNS host override plan
+  ansible.builtin.debug:
+    msg:
+      - "Configuring DNS host override: {{ dns_override.hostname }}.{{ dns_override.domain }}"
+      - "IP: {{ dns_override.ip }}"
+  when: ansible_verbosity >= 1
+
+# Prepare DNS host override configuration
+- name: Prepare DNS host override configuration
+  ansible.builtin.set_fact:
+    _dns_override_config:
+      host: "{{ dns_override.hostname }}"
+      domain: "{{ dns_override.domain }}"
+      ip: "{{ dns_override.ip }}"
+      descr: "{{ dns_override.description | default('') }}"
+
+# Try to create DNS host override with POST
+- name: Try to create DNS host override
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/unbound/host_override"
+    method: POST
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ _dns_override_config }}"
+    status_code: [200, 201, 400]
+  register: _dns_create_result
+  failed_when: false
+
+# Extract ID from error if host override already exists
+- name: Extract DNS host override ID from error
+  ansible.builtin.set_fact:
+    _dns_override_id: "{{ _dns_create_result.json.message | regex_search('ID `(\\d+)`', '\\1') | first }}"
+  when:
+    - _dns_create_result.status == 400
+    - _dns_create_result.json.response_id is defined
+    - _dns_create_result.json.response_id == "FIELD_MUST_BE_UNIQUE"
+
+# If host override already exists, update it with PATCH
+- name: Update existing DNS host override
+  ansible.builtin.uri:
+    url: "{{ pfsense_api_url }}/services/unbound/host_override?host={{ dns_override.hostname | urlencode }}&domain={{ dns_override.domain | urlencode }}"
+    method: PATCH
+    validate_certs: "{{ pfsense_validate_certs }}"
+    headers:
+      X-API-Key: "{{ pfsense_api_key }}"
+      Content-Type: "application/json"
+    body_format: json
+    body: "{{ _dns_override_config | combine({'id': _dns_override_id | int}) }}"
+    status_code: [200, 201]
+  register: _dns_update_result
+  when:
+    - _dns_create_result.status == 400
+    - _dns_override_id is defined
+
+# Set result based on which operation succeeded
+- name: Set DNS host override result
+  ansible.builtin.set_fact:
+    _dns_result: "{{ _dns_update_result if _dns_update_result is defined and not _dns_update_result.skipped | default(true) else _dns_create_result }}"
+    _dns_action: "{{ 'UPDATED' if _dns_update_result is defined and not _dns_update_result.skipped | default(true) else 'CREATED' }}"
+
+- name: Display DNS host override result
+  ansible.builtin.debug:
+    msg:
+      - "DNS host override configuration: SUCCESS"
+      - "FQDN: {{ dns_override.hostname }}.{{ dns_override.domain }}"
+      - "IP: {{ dns_override.ip }}"
+      - "Action: {{ _dns_action }}"
+  when: ansible_verbosity >= 0
