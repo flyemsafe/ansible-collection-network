@@ -1,24 +1,26 @@
 ---
 ##################################################
 # rhdc.network.kea_dhcp - Default Variables
+# Refactored to use pre-built image and Quadlet
 ##################################################
 
-# Container configuration
-kea_container_name: rhdc-kea-dhcp
-kea_image_name: rhdc-kea-dhcp
-kea_image_tag: latest
+# Pre-built Kea DHCP image (no building required)
+# Using jonasal/kea-dhcp4 - well-maintained multi-arch image
+# https://github.com/JonasAlfredsson/docker-kea
+kea_image: "docker.io/jonasal/kea-dhcp4:2"
 
-# Directory paths
+# Directory paths (standardized RHDC container pattern)
 kea_base_dir: /opt/podman/containers/rhdc-kea-dhcp
 kea_config_dir: "{{ kea_base_dir }}/config"
-kea_container_dir: "{{ kea_base_dir }}/container"
-kea_logs_dir: "{{ kea_base_dir }}/logs"
 kea_leases_dir: "{{ kea_base_dir }}/leases"
+kea_logs_dir: "{{ kea_base_dir }}/logs"
+kea_sockets_dir: "{{ kea_base_dir }}/sockets"
 
 # Network configuration
 kea_interface: "*"  # Listen on all interfaces
 
 # Subnet configuration
+# Each subnet can have its own reservations list
 kea_subnets:
   - subnet: "172.23.11.0/24"
     pools:
@@ -30,15 +32,15 @@ kea_subnets:
       - "172.23.11.1"
     domain_name: "lab.rodhouse.net"
     lease_time: 86400  # 24 hours
+    # Per-subnet static reservations (optional)
+    reservations: []
+    # Example:
+    # reservations:
+    #   - hostname: "server01"
+    #     hw_address: "aa:bb:cc:dd:ee:ff"
+    #     ip_address: "172.23.11.10"
+    #     description: "Production web server"  # Optional comment
 
-# Static DHCP reservations
-kea_reservations: []
-# Example:
-# kea_reservations:
-#   - hostname: "server01"
-#     hw_address: "aa:bb:cc:dd:ee:ff"
-#     ip_address: "172.23.11.10"
-    
 # PXE Boot configuration
 kea_pxe_enabled: true
 kea_pxe_next_server: "172.23.11.5"
@@ -53,5 +55,9 @@ kea_ddns_domain: "lab.rodhouse.net"
 # Logging
 kea_log_level: "INFO"  # DEBUG, INFO, WARN, ERROR
 
-# Service configuration
+# Timezone
 kea_timezone: "America/New_York"
+
+# Firewall configuration
+kea_firewall_enable: true
+kea_firewall_zone: public

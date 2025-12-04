@@ -9,7 +9,8 @@ This role deploys [ISC Kea DHCP](https://www.isc.org/kea/) as a containerized DH
 - **UEFI Support**: Proper chainloading from EFI → iPXE → boot menu
 - **BIOS Support**: Direct boot to iPXE menu
 - **JSON Configuration**: Ansible-friendly templates
-- **Podman Native**: Rootful container with systemd service
+- **Pre-built Image**: Uses [jonasal/kea-dhcp4](https://github.com/JonasAlfredsson/docker-kea) (no build on every run)
+- **Quadlet Deployment**: Modern systemd-integrated container management
 
 ## Requirements
 
@@ -27,7 +28,7 @@ See `defaults/main.yml` for complete list. Key variables:
 kea_interface: "qubibr0"  # Specific interface (recommended)
                            # Default: "*" (all interfaces - may cause conflicts)
 
-# Subnet configuration
+# Subnet configuration with per-subnet reservations
 kea_subnets:
   - subnet: "172.23.11.0/24"
     pools:
@@ -35,14 +36,49 @@ kea_subnets:
     gateway: "172.23.11.1"
     dns_servers:
       - "172.23.11.1"
+    ntp_servers:
+      - "172.23.11.1"
     domain_name: "lab.rodhouse.net"
     lease_time: 86400
+    # Per-subnet static reservations (optional)
+    reservations:
+      - hostname: "server01"
+        hw_address: "aa:bb:cc:dd:ee:ff"
+        ip_address: "172.23.11.10"
+        description: "Production web server"  # Optional, stored as Kea comment
 
 # PXE Boot configuration
 kea_pxe_enabled: true
 kea_pxe_next_server: "172.23.11.5"
 kea_pxe_boot_file_bios: "boot.ipxe"
 kea_pxe_boot_file_uefi: "rhdc-boot.efi"
+```
+
+### Static Reservations
+
+Reservations are defined per-subnet using the `reservations` list:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `hostname` | Yes | Device hostname |
+| `hw_address` | Yes | MAC address (format: aa:bb:cc:dd:ee:ff) |
+| `ip_address` | Yes | Static IP to assign |
+| `description` | No | Optional comment stored in Kea config |
+
+**Example with multiple reservations**:
+```yaml
+kea_subnets:
+  - subnet: "172.23.11.0/24"
+    # ... other config ...
+    reservations:
+      - hostname: "switch01"
+        hw_address: "1c:5f:2b:27:cc:00"
+        ip_address: "172.23.11.2"
+        description: "Core switch"
+      - hostname: "server01"
+        hw_address: "3c:ec:ef:34:ca:39"
+        ip_address: "172.23.11.43"
+        description: "KVM/ZFS host"
 ```
 
 ### Important: Network Interface Configuration
@@ -119,10 +155,13 @@ sudo systemctl status rhdc-kea-dhcp.service
 sudo podman logs -f rhdc-kea-dhcp
 
 # Check active leases
-sudo podman exec rhdc-kea-dhcp cat /var/lib/kea/kea-leases4.csv
+sudo podman exec rhdc-kea-dhcp cat /kea/leases/kea-leases4.csv
 
 # Verify port 67 binding
 sudo ss -ulnp 'sport = :67'
+
+# Check Quadlet unit
+cat /etc/containers/systemd/rhdc-kea-dhcp.container
 ```
 
 ## iPXE Boot Flow

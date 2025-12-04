@@ -1,0 +1,43 @@
+# {{ ansible_managed }}
+# Quadlet container unit for RHDC Kea DHCP Server
+# Uses pre-built jonasal/kea-dhcp4 image
+
+[Unit]
+Description=RHDC Kea DHCP Server
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+Image={{ kea_image }}
+ContainerName=rhdc-kea-dhcp
+Pull=missing
+
+# Host networking required for DHCP (port 67/udp)
+Network=host
+
+# Volume mounts
+Volume={{ kea_config_dir }}:/kea/config:ro,Z
+Volume={{ kea_leases_dir }}:/kea/leases:Z
+Volume={{ kea_logs_dir }}:/kea/logs:Z
+Volume={{ kea_sockets_dir }}:/kea/sockets:Z
+
+# Environment variables
+Environment=TZ={{ kea_timezone }}
+
+# Command to run kea-dhcp4 with our config
+Exec=-c /kea/config/kea-dhcp4.json
+
+# Health check - verify control socket exists
+HealthCmd=test -S /kea/sockets/kea-dhcp4-ctrl.sock || exit 1
+HealthInterval=30s
+HealthTimeout=5s
+HealthRetries=3
+HealthStartPeriod=10s
+
+[Service]
+Restart=always
+TimeoutStartSec=300
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target

@@ -7,13 +7,13 @@
     
     "control-socket": {
       "socket-type": "unix",
-      "socket-name": "/run/kea/kea-dhcp4-ctrl.sock"
+      "socket-name": "/kea/sockets/kea-dhcp4-ctrl.sock"
     },
-    
+
     "lease-database": {
       "type": "memfile",
       "persist": true,
-      "name": "/var/lib/kea/kea-leases4.csv",
+      "name": "/kea/leases/kea-leases4.csv",
       "lfc-interval": 3600
     },
     
@@ -83,13 +83,15 @@
             "data": "{{ subnet.ntp_servers | join(', ') }}"
           }{% endif %}
         ],
-{% if kea_reservations | length > 0 %}
+{% set subnet_reservations = subnet.reservations | default([]) %}
+{% if subnet_reservations | length > 0 %}
         "reservations": [
-{% for reservation in kea_reservations %}
+{% for reservation in subnet_reservations %}
           {
             "hw-address": "{{ reservation.hw_address }}",
             "ip-address": "{{ reservation.ip_address }}"{% if reservation.hostname is defined %},
-            "hostname": "{{ reservation.hostname }}"{% endif %}
+            "hostname": "{{ reservation.hostname }}"{% endif %}{% if reservation.description is defined %},
+            "comment": "{{ reservation.description }}"{% endif %}
           }{{ "," if not loop.last else "" }}
 {% endfor %}
         ],

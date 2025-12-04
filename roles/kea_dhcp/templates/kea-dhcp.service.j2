@@ -1,0 +1,42 @@
+# {{ ansible_managed }}
+# Systemd service for RHDC Kea DHCP Server
+# Uses pre-built jonasal/kea-dhcp4 image
+# For Podman < 4.4 (without Quadlet support)
+
+[Unit]
+Description=RHDC Kea DHCP Server
+Documentation=https://github.com/flyemsafe/rodhouse-datacenter
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+TimeoutStopSec=30
+
+ExecStartPre=-/usr/bin/podman rm -f rhdc-kea-dhcp
+ExecStartPre=/usr/bin/podman pull {{ kea_image }}
+
+ExecStart=/usr/bin/podman run \
+  --rm \
+  --name rhdc-kea-dhcp \
+  --network host \
+  --volume {{ kea_config_dir }}:/kea/config:ro,Z \
+  --volume {{ kea_leases_dir }}:/kea/leases:Z \
+  --volume {{ kea_logs_dir }}:/kea/logs:Z \
+  --volume {{ kea_sockets_dir }}:/kea/sockets:Z \
+  --env TZ={{ kea_timezone }} \
+  --health-cmd="test -S /kea/sockets/kea-dhcp4-ctrl.sock || exit 1" \
+  --health-interval=30s \
+  --health-timeout=5s \
+  --health-retries=3 \
+  --health-start-period=10s \
+  {{ kea_image }} \
+  -c /kea/config/kea-dhcp4.json
+
+ExecStop=/usr/bin/podman stop -t 10 rhdc-kea-dhcp
+
+[Install]
+WantedBy=multi-user.target

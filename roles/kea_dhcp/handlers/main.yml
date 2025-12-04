@@ -3,11 +3,13 @@
 # rhdc.network.kea_dhcp - Handlers
 ##################################################
 
-- name: Reload systemd
+- name: Reload systemd daemon
   ansible.builtin.systemd:
     daemon_reload: true
+  become: true
 
 - name: Restart Kea DHCP
   ansible.builtin.systemd:
     name: rhdc-kea-dhcp.service
     state: restarted
+  become: true

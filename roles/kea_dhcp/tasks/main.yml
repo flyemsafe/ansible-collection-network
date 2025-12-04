@@ -1,74 +1,154 @@
 ---
 ##################################################
 # rhdc.network.kea_dhcp - Main Tasks
+# Refactored to use pre-built image and Quadlet/systemd
 ##################################################
 
-- name: Create directory structure
+# Clean up old deployment artifacts (pre-refactor)
+- name: Stop and disable old systemd service if exists
+  ansible.builtin.systemd:
+    name: rhdc-kea-dhcp.service
+    state: stopped
+    enabled: false
+  become: true
+  failed_when: false
+  register: old_service_result
+
+- name: Remove old container build artifacts
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ kea_base_dir }}/container"
+  become: true
+
+# Detect Podman version to determine Quadlet support
+- name: Get Podman version
+  ansible.builtin.command: podman --version
+  register: podman_version_output
+  changed_when: false
+  become: true
+
+- name: Parse Podman version
+  ansible.builtin.set_fact:
+    podman_version: "{{ podman_version_output.stdout | regex_search('podman version ([0-9]+\\.[0-9]+)', '\\1') | first }}"
+
+- name: Determine if Quadlet is supported (Podman >= 4.4)
+  ansible.builtin.set_fact:
+    use_quadlet: "{{ podman_version is version('4.4', '>=') }}"
+
+- name: Display deployment method
+  ansible.builtin.debug:
+    msg: "Podman {{ podman_version }} detected - using {{ 'Quadlet' if use_quadlet else 'systemd service' }} deployment"
+
+# Create directories
+- name: Create Kea directories
   ansible.builtin.file:
     path: "{{ item }}"
     state: directory
     mode: '0755'
   loop:
-    - "{{ kea_base_dir }}"
     - "{{ kea_config_dir }}"
-    - "{{ kea_container_dir }}"
-    - "{{ kea_logs_dir }}"
     - "{{ kea_leases_dir }}"
+    - "{{ kea_logs_dir }}"
+  become: true
 
-- name: Template Containerfile
-  ansible.builtin.template:
-    src: Containerfile.j2
-    dest: "{{ kea_container_dir }}/Containerfile"
-    mode: '0644'
+- name: Create Kea sockets directory with restricted permissions
+  ansible.builtin.file:
+    path: "{{ kea_sockets_dir }}"
+    state: directory
+    mode: '0750'
+  become: true
 
-- name: Template container startup script
-  ansible.builtin.template:
-    src: start-kea.sh.j2
-    dest: "{{ kea_container_dir }}/start-kea.sh"
-    mode: '0755'
-
+# Template Kea configuration
 - name: Template Kea DHCP configuration
   ansible.builtin.template:
     src: kea-dhcp4.json.j2
     dest: "{{ kea_config_dir }}/kea-dhcp4.json"
     mode: '0644'
     validate: 'python3 -m json.tool %s'
+  become: true
   notify: Restart Kea DHCP
 
-- name: Build container image (rootless)
-  containers.podman.podman_image:
-    name: "{{ kea_image_name }}"
-    tag: "{{ kea_image_tag }}"
-    path: "{{ kea_container_dir }}"
-    force: true
-  become: false
+# Quadlet deployment (Podman >= 4.4)
+- name: Deploy with Quadlet
+  when: use_quadlet | bool
+  block:
+    - name: Create Quadlet directory
+      ansible.builtin.file:
+        path: /etc/containers/systemd
+        state: directory
+        mode: '0755'
+      become: true
 
-- name: Export image from rootless to rootful storage
-  ansible.builtin.shell: |
-    podman save {{ kea_image_name }}:{{ kea_image_tag }} | \
-    sudo podman load
-  args:
-    executable: /bin/bash
-  become: false
-  changed_when: true
+    - name: Template Kea DHCP Quadlet unit
+      ansible.builtin.template:
+        src: kea-dhcp.container.j2
+        dest: /etc/containers/systemd/rhdc-kea-dhcp.container
+        mode: '0644'
+      become: true
+      notify: Reload systemd daemon
 
-- name: Template systemd service file
-  ansible.builtin.template:
-    src: rhdc-kea-dhcp.service.j2
-    dest: /etc/systemd/system/rhdc-kea-dhcp.service
-    mode: '0644'
-  notify: Reload systemd
+    - name: Remove legacy systemd service file
+      ansible.builtin.file:
+        path: /etc/systemd/system/rhdc-kea-dhcp.service
+        state: absent
+      become: true
+      notify: Reload systemd daemon
 
-- name: Reload systemd daemon
-  ansible.builtin.systemd:
-    daemon_reload: true
+# Systemd service deployment (Podman < 4.4)
+- name: Deploy with systemd service
+  when: not use_quadlet | bool
+  block:
+    - name: Template systemd service file
+      ansible.builtin.template:
+        src: kea-dhcp.service.j2
+        dest: /etc/systemd/system/rhdc-kea-dhcp.service
+        mode: '0644'
+      become: true
+      notify: Reload systemd daemon
+
+    - name: Remove Quadlet file if exists
+      ansible.builtin.file:
+        path: /etc/containers/systemd/rhdc-kea-dhcp.container
+        state: absent
+      become: true
+
+# Firewall
+- name: Open DHCP port in firewall
+  ansible.posix.firewalld:
+    service: dhcp
+    zone: "{{ kea_firewall_zone }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  when: kea_firewall_enable | bool
+
+# Start service
+- name: Flush handlers to reload systemd before starting
+  ansible.builtin.meta: flush_handlers
 
 - name: Enable and start Kea DHCP service
   ansible.builtin.systemd:
     name: rhdc-kea-dhcp.service
     enabled: true
     state: started
+    daemon_reload: true
+  become: true
 
+# Health check
+- name: Wait for Kea to be healthy
+  ansible.builtin.command: podman healthcheck run rhdc-kea-dhcp
+  register: health_result
+  until: health_result.rc == 0
+  retries: 6
+  delay: 5
+  changed_when: false
+  failed_when: false
+  become: true
+
+# Summary
 - name: Display deployment summary
   ansible.builtin.debug:
     msg:
@@ -76,22 +156,27 @@
       - "RHDC Kea DHCP Server Deployed"
       - "========================================="
       - ""
+      - "Image: {{ kea_image }}"
+      - "Method: {{ 'Quadlet' if use_quadlet else 'systemd service' }}"
       - "Service: rhdc-kea-dhcp.service"
-      - "Status: started"
-      - "DHCP Port: 67/udp"
+      - "Health: {{ 'Healthy' if health_result.rc == 0 else 'Starting (may take a moment)' }}"
       - ""
       - "Configuration:"
       - "  Config: {{ kea_config_dir }}/kea-dhcp4.json"
       - "  Leases: {{ kea_leases_dir }}/kea-leases4.csv"
-      - ""
-      - "PXE Boot:"
-      - "  Next Server: {{ kea_pxe_next_server }}"
-      - "  BIOS: {{ kea_pxe_boot_file_bios }}"
-      - "  UEFI: {{ kea_pxe_boot_file_uefi }}"
       - ""
       - "Subnets: {{ kea_subnets | map(attribute='subnet') | join(', ') }}"
       - ""
       - "Verification:"
       - "  sudo systemctl status rhdc-kea-dhcp.service"
       - "  sudo podman logs rhdc-kea-dhcp"
-      - "  sudo podman exec rhdc-kea-dhcp cat /var/lib/kea/kea-leases4.csv"
+      - "  sudo podman exec rhdc-kea-dhcp cat /kea/leases/kea-leases4.csv"
+
+- name: Display PXE boot summary
+  ansible.builtin.debug:
+    msg:
+      - "PXE Boot Configuration:"
+      - "  Next Server: {{ kea_pxe_next_server }}"
+      - "  BIOS: {{ kea_pxe_boot_file_bios }}"
+      - "  UEFI: {{ kea_pxe_boot_file_uefi }}"
+  when: kea_pxe_enabled | bool
