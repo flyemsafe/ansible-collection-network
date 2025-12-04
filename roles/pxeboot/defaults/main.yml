@@ -51,29 +51,34 @@ pxeboot_enable_vnc: true
 # Note: inst.xdriver and inst.usefbx are DEPRECATED and have no effect
 pxeboot_boot_modes:
   - name: graphical
-    label: "Graphical"
-    description: "Full graphical installer (default)"
+    label: "Graphical + Minimal KS"
+    description: "Graphical installer with minimal kickstart (users/timezone preset, disk interactive)"
     kernel_args: "inst.graphical inst.resolution=1024x768"
   - name: graphical-safe
-    label: "Graphical Safe"
-    description: "Graphical with nomodeset for Intel/AMD issues"
+    label: "Graphical Safe + Minimal KS"
+    description: "Graphical with nomodeset for Intel/AMD issues, minimal kickstart"
     kernel_args: "inst.graphical inst.resolution=1024x768 nomodeset"
   - name: graphical-nvidia
-    label: "Graphical (NVIDIA)"
-    description: "Graphical with nouveau blacklisted for NVIDIA"
+    label: "Graphical NVIDIA + Minimal KS"
+    description: "Graphical with nouveau blacklisted for NVIDIA, minimal kickstart"
     kernel_args: "inst.graphical inst.resolution=1024x768 nomodeset rd.driver.blacklist=nouveau modprobe.blacklist=nouveau nouveau.modeset=0"
   - name: graphical-intel
-    label: "Graphical (Intel)"
-    description: "Graphical with Intel i915 fixes"
+    label: "Graphical Intel + Minimal KS"
+    description: "Graphical with Intel i915 fixes, minimal kickstart"
     kernel_args: "inst.graphical inst.resolution=1024x768 i915.modeset=1 i915.enable_psr=0 i915.enable_fbc=0"
   - name: text
-    label: "Text Mode"
-    description: "Text-based installer (no graphics)"
+    label: "Text Mode + Minimal KS"
+    description: "Text-based installer with minimal kickstart (no graphics)"
     kernel_args: "inst.text"
   - name: vnc-only
-    label: "VNC Only"
-    description: "Graphical via VNC only (no local display)"
+    label: "VNC Only + Minimal KS"
+    description: "Graphical via VNC only (no local display), minimal kickstart"
     kernel_args: "inst.graphical inst.vnc inst.vncpassword=pxeboot"
+  - name: manual
+    label: "Manual Install (No KS)"
+    description: "Full manual install without kickstart (interactive disk/network config)"
+    kernel_args: "inst.graphical inst.resolution=1024x768"
+    no_kickstart: true
 
 ##################################################
 # RHEL Versions Configuration
