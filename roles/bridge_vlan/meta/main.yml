@@ -1,0 +1,29 @@
+---
+# rhdc.network.bridge_vlan - Role metadata
+
+galaxy_info:
+  author: RHDC
+  description: Configure Linux bridges with VLAN sub-interfaces using NetworkManager
+  license: MIT
+  min_ansible_version: "2.14"
+
+  platforms:
+    - name: EL
+      versions:
+        - "9"
+    - name: Fedora
+      versions:
+        - "38"
+        - "39"
+        - "40"
+        - "41"
+
+  galaxy_tags:
+    - network
+    - bridge
+    - vlan
+    - networkmanager
+    - libvirt
+    - rhdc
+
+dependencies: []

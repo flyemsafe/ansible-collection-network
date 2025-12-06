@@ -1,0 +1,90 @@
+---
+# rhdc.network.bridge_vlan - Default variables
+#
+# Configures Linux bridges with VLAN sub-interfaces using NetworkManager
+# Architecture: "bridge per VLAN" for libvirt networking
+#
+# Supports multiple trunk interfaces, each with its own main bridge and optional VLANs.
+# Main bridge (rhdcbr0) - Has host IP, trunk interface enslaved
+# VLAN bridges (vlan10br0, etc.) - Layer 2 only, VLAN sub-interface enslaved
+
+# =============================================================================
+# NEW: Multiple trunk interfaces (RECOMMENDED)
+# =============================================================================
+# List of trunk interfaces with their bridge configurations.
+# Each trunk interface gets its own main bridge and optional VLAN bridges.
+#
+# Example:
+#   rhdc_bridge_vlan_interfaces:
+#     # Lab network with VLANs
+#     - interface: "eno2"
+#       main_bridge:
+#         name: "rhdcbr0"
+#         ipv4_address: "172.23.11.43/24"
+#         ipv4_gateway: "172.23.11.1"
+#         ipv4_dns: ["172.23.11.1"]
+#         stp: false
+#       vlan_bridges:
+#         - { name: vlan10br0, vlan_id: 10 }
+#         - { name: vlan11br0, vlan_id: 11 }
+#
+#     # Storage network - simple bridge, no VLANs, no gateway
+#     - interface: "enp2s0"
+#       main_bridge:
+#         name: "storagebr0"
+#         ipv4_address: "172.23.13.43/24"
+#         ipv4_gateway: ""
+#         ipv4_dns: []
+#         stp: false
+#       vlan_bridges: []
+#
+rhdc_bridge_vlan_interfaces: []
+
+# =============================================================================
+# LEGACY: Single trunk interface (backwards compatible)
+# =============================================================================
+# These variables are still supported for backwards compatibility.
+# If rhdc_bridge_vlan_interfaces is empty and these are set, they will be
+# converted internally to the new format.
+
+# Trunk interface (physical interface carrying all VLANs)
+# DEPRECATED - use rhdc_bridge_vlan_interfaces instead
+rhdc_bridge_vlan_trunk_interface: ""  # e.g., "eno1"
+
+# Main bridge configuration (native VLAN - carries host IP)
+# DEPRECATED - use rhdc_bridge_vlan_interfaces instead
+rhdc_bridge_vlan_main_bridge:
+  name: "rhdcbr0"
+  ipv4_address: ""      # REQUIRED: e.g., "172.23.11.41/24"
+  ipv4_gateway: ""      # REQUIRED: e.g., "172.23.11.1"
+  ipv4_dns: []          # Optional: e.g., ["172.23.11.1"]
+  stp: false            # Spanning Tree Protocol (usually false for simple setups)
+
+# VLAN bridges to create (Layer 2 only, no IP)
+# DEPRECATED - use rhdc_bridge_vlan_interfaces instead
+rhdc_bridge_vlan_bridges: []
+# Example:
+#   - name: vlan10br0
+#     vlan_id: 10
+#   - name: vlan12br0
+#     vlan_id: 12
+
+# =============================================================================
+# Common options
+# =============================================================================
+
+# Cleanup old/conflicting connections before configuring
+# List connection names to remove (use nmcli connection show to find names)
+rhdc_bridge_vlan_cleanup_connections: []
+# Example: ["Wired connection 1", "qubibr0", "br-vlan10"]
+
+# Skip validation checks (use with caution - for recovery scenarios)
+rhdc_bridge_vlan_skip_validation: false
+
+# Bring up connections after creating them
+rhdc_bridge_vlan_activate_connections: true
+
+# Backup configuration before making changes
+# Creates restore script that can be run via BMC/console to revert networking
+rhdc_bridge_vlan_create_backup: true
+rhdc_bridge_vlan_backup_dir: /root/network-backup

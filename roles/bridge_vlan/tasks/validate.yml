@@ -1,0 +1,60 @@
+---
+# rhdc.network.bridge_vlan - Pre-flight validation
+#
+# Validates all interfaces in _effective_interfaces list
+
+# Get available interfaces once (for error messages)
+- name: Get available interfaces
+  ansible.builtin.command: ip -brief link show
+  register: _available_interfaces
+  changed_when: false
+
+# =============================================================================
+# Validate each interface configuration
+# =============================================================================
+
+- name: Validate each interface configuration
+  ansible.builtin.include_tasks: validate_interface.yml
+  loop: "{{ _effective_interfaces }}"
+  loop_control:
+    loop_var: _validate_iface
+    label: "{{ _validate_iface.interface }}"
+
+# =============================================================================
+# Global uniqueness checks (across all interfaces)
+# =============================================================================
+
+# Collect all bridge names across all interfaces
+- name: Collect all bridge names
+  ansible.builtin.set_fact:
+    _all_bridge_names: >-
+      {{ _effective_interfaces | map(attribute='main_bridge.name') | list +
+         _effective_interfaces | map(attribute='vlan_bridges', default=[]) | flatten | map(attribute='name', default='') | select | list }}
+
+- name: Validate all bridge names are unique across interfaces
+  ansible.builtin.assert:
+    that:
+      - _all_bridge_names | unique | length == _all_bridge_names | length
+    fail_msg: |
+      Duplicate bridge names found across interfaces:
+      {{ _all_bridge_names | sort }}
+
+      Each bridge must have a unique name.
+
+# Collect all VLAN IDs per interface (VLAN IDs can repeat across different interfaces)
+- name: Validate VLAN IDs are unique within each interface
+  ansible.builtin.assert:
+    that:
+      - item.vlan_bridges | default([]) | map(attribute='vlan_id') | list | unique | length ==
+        item.vlan_bridges | default([]) | length
+    fail_msg: |
+      Duplicate VLAN IDs found on interface {{ item.interface }}:
+      {{ item.vlan_bridges | map(attribute='vlan_id') | list }}
+  loop: "{{ _effective_interfaces }}"
+  loop_control:
+    label: "{{ item.interface }}"
+  when: item.vlan_bridges | default([]) | length > 0
+
+- name: Display validation passed
+  ansible.builtin.debug:
+    msg: "✓ Pre-flight validation passed for {{ _effective_interfaces | length }} interface(s)"

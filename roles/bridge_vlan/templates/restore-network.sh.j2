@@ -1,0 +1,168 @@
+#!/bin/bash
+# {{ ansible_managed }}
+#
+# Network Restore Script for {{ inventory_hostname }}
+# Generated: {{ ansible_date_time.iso8601 }}
+#
+# This script restores networking to the state before bridge_vlan role was applied.
+# Run this via BMC/IPMI console if you lose network connectivity.
+#
+# Usage:
+#   {{ rhdc_bridge_vlan_backup_dir }}/restore-network-latest.sh
+#
+# What this script does:
+#   1. Removes all bridge and VLAN connections created by the role
+#   2. Restores the original connection for each interface
+#   3. Brings up the restored connections
+
+set -e
+
+BACKUP_DIR="{{ rhdc_bridge_vlan_backup_dir }}"
+TIMESTAMP="{{ _backup_timestamp }}"
+
+echo "═══════════════════════════════════════════════════════════════════"
+echo "NETWORK RESTORE SCRIPT"
+echo "═══════════════════════════════════════════════════════════════════"
+echo ""
+echo "Host: {{ inventory_hostname }}"
+echo "Backup timestamp: ${TIMESTAMP}"
+echo ""
+echo "Interfaces to restore:"
+{% for iface in _effective_interfaces %}
+echo "  - {{ iface.interface }} (was {{ iface.main_bridge.name }})"
+{% endfor %}
+echo ""
+
+# Function to delete connection if it exists
+delete_connection_if_exists() {
+    local conn_name="$1"
+    if nmcli -t -f NAME connection show | grep -q "^${conn_name}$"; then
+        echo "  Removing: ${conn_name}"
+        nmcli connection delete "${conn_name}" 2>/dev/null || true
+    fi
+}
+
+echo "Step 1: Removing bridge and VLAN connections created by role..."
+echo "───────────────────────────────────────────────────────────────────"
+
+{% for iface in _effective_interfaces %}
+echo ""
+echo "Interface: {{ iface.interface }}"
+
+# Remove VLAN connections first (slaves)
+{% for vlan in iface.vlan_bridges | default([]) %}
+delete_connection_if_exists "vlan{{ vlan.vlan_id }}-{{ iface.interface }}"
+{% endfor %}
+
+# Remove interface slave connection
+delete_connection_if_exists "bridge-slave-{{ iface.interface }}"
+
+# Remove VLAN bridge connections
+{% for vlan in iface.vlan_bridges | default([]) %}
+delete_connection_if_exists "{{ vlan.name }}"
+{% endfor %}
+
+# Remove main bridge connection
+delete_connection_if_exists "{{ iface.main_bridge.name }}"
+
+{% endfor %}
+
+echo ""
+echo "Step 2: Restoring original connections..."
+echo "───────────────────────────────────────────────────────────────────"
+
+{% for iface in _effective_interfaces %}
+echo ""
+echo "Restoring {{ iface.interface }}..."
+
+INTERFACE="{{ iface.interface }}"
+ORIGINAL_IP="{{ iface.main_bridge.ipv4_address | regex_replace('/.*', '') }}"
+ORIGINAL_PREFIX="{{ iface.main_bridge.ipv4_address | regex_replace('.*/', '') }}"
+{% if iface.main_bridge.ipv4_gateway | default('') | length > 0 %}
+ORIGINAL_GATEWAY="{{ iface.main_bridge.ipv4_gateway }}"
+{% else %}
+ORIGINAL_GATEWAY=""
+{% endif %}
+{% if iface.main_bridge.ipv4_dns | default([]) | length > 0 %}
+ORIGINAL_DNS="{{ iface.main_bridge.ipv4_dns | join(',') }}"
+{% else %}
+ORIGINAL_DNS=""
+{% endif %}
+
+# Check if we have exported connection profiles to restore
+CONN_BACKUP=$(ls ${BACKUP_DIR}/network-backup-${TIMESTAMP}-conn-*${INTERFACE}*.nmconnection 2>/dev/null | head -1 || true)
+
+if [ -n "${CONN_BACKUP}" ] && [ -f "${CONN_BACKUP}" ]; then
+    echo "  Restoring from exported profile: ${CONN_BACKUP}"
+    nmcli connection load "${CONN_BACKUP}" || true
+    RESTORED_CONN=$(basename "${CONN_BACKUP}" .nmconnection | sed 's/.*-conn-//' | sed 's/_/ /g')
+    echo "  Bringing up: ${RESTORED_CONN}"
+    nmcli connection up "${RESTORED_CONN}" 2>/dev/null || true
+else
+    echo "  No exported profile found. Creating new connection..."
+
+    CONN_NAME="${INTERFACE}-restored"
+
+    echo "  Creating: ${CONN_NAME}"
+    nmcli connection add \
+        type ethernet \
+        con-name "${CONN_NAME}" \
+        ifname "${INTERFACE}" \
+        ipv4.method manual \
+        ipv4.addresses "${ORIGINAL_IP}/${ORIGINAL_PREFIX}" \
+        ${ORIGINAL_GATEWAY:+ipv4.gateway "${ORIGINAL_GATEWAY}"} \
+        ${ORIGINAL_DNS:+ipv4.dns "${ORIGINAL_DNS}"} \
+        ipv6.method disabled \
+        connection.autoconnect yes
+
+    echo "  Bringing up: ${CONN_NAME}"
+    nmcli connection up "${CONN_NAME}" || true
+fi
+
+{% endfor %}
+
+echo ""
+echo "Step 3: Verifying network connectivity..."
+echo "───────────────────────────────────────────────────────────────────"
+
+# Wait a moment for connections to stabilize
+sleep 2
+
+# Show current IP configuration for each interface
+{% for iface in _effective_interfaces %}
+echo ""
+echo "{{ iface.interface }}:"
+ip addr show "{{ iface.interface }}" 2>/dev/null | grep -E "inet |state " || echo "  Interface not found"
+{% endfor %}
+
+echo ""
+echo "Active connections:"
+nmcli connection show --active
+
+{% for iface in _effective_interfaces %}
+{% if iface.main_bridge.ipv4_gateway | default('') | length > 0 %}
+echo ""
+echo "Testing gateway for {{ iface.interface }} ({{ iface.main_bridge.ipv4_gateway }})..."
+if ping -c 2 -W 2 "{{ iface.main_bridge.ipv4_gateway }}" > /dev/null 2>&1; then
+    echo "  ✓ Gateway {{ iface.main_bridge.ipv4_gateway }} is reachable"
+else
+    echo "  ✗ Gateway {{ iface.main_bridge.ipv4_gateway }} is NOT reachable"
+fi
+{% endif %}
+{% endfor %}
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════════"
+echo "RESTORE COMPLETE"
+echo "═══════════════════════════════════════════════════════════════════"
+echo ""
+echo "Network should now be restored to pre-bridge configuration."
+echo ""
+echo "If connectivity is still broken, try:"
+echo "  1. Check cable connections"
+echo "  2. nmcli connection show (list available connections)"
+echo "  3. nmcli connection up <connection-name>"
+echo "  4. systemctl restart NetworkManager"
+echo ""
+echo "Backup files are preserved in: ${BACKUP_DIR}"
+echo ""

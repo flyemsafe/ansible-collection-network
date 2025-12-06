@@ -1,0 +1,28 @@
+---
+# rhdc.network.bridge_vlan - Cleanup old connections
+
+- name: Get current NetworkManager connections
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: _current_connections
+  changed_when: false
+
+- name: Remove old connections
+  ansible.builtin.command: nmcli connection delete "{{ item }}"
+  loop: "{{ rhdc_bridge_vlan_cleanup_connections }}"
+  when: item in _current_connections.stdout_lines
+  register: _cleanup_result
+  failed_when: false
+  changed_when: _cleanup_result.rc == 0
+
+- name: Display cleanup results
+  ansible.builtin.debug:
+    msg: |
+      Cleanup completed:
+      {% for item in _cleanup_result.results | default([]) %}
+      {% if item.changed %}
+        - Removed: {{ item.item }}
+      {% elif item.skipped | default(false) %}
+        - Skipped (not found): {{ item.item }}
+      {% endif %}
+      {% endfor %}
+  when: _cleanup_result.results is defined

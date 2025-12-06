@@ -1,0 +1,144 @@
+---
+# rhdc.network.bridge_vlan - Main tasks
+#
+# Configures Linux bridges with VLAN sub-interfaces using NetworkManager
+# WARNING: This role modifies network configuration. Have BMC/console access ready.
+#
+# Supports multiple trunk interfaces via rhdc_bridge_vlan_interfaces list.
+# Legacy single-interface variables are converted for backwards compatibility.
+
+# =============================================================================
+# Normalize configuration (backwards compatibility)
+# =============================================================================
+# Convert legacy single-interface variables to new format if needed
+
+- name: Build effective interfaces list
+  ansible.builtin.set_fact:
+    _effective_interfaces: >-
+      {%- if rhdc_bridge_vlan_interfaces | length > 0 -%}
+        {{ rhdc_bridge_vlan_interfaces }}
+      {%- elif rhdc_bridge_vlan_trunk_interface | length > 0 -%}
+        {{ [{'interface': rhdc_bridge_vlan_trunk_interface,
+             'main_bridge': rhdc_bridge_vlan_main_bridge,
+             'vlan_bridges': rhdc_bridge_vlan_bridges}] }}
+      {%- else -%}
+        []
+      {%- endif -%}
+
+- name: Fail if no interfaces configured
+  ansible.builtin.fail:
+    msg: |
+      No interfaces configured. Please set either:
+        - rhdc_bridge_vlan_interfaces (recommended) - list of interface configurations
+        - rhdc_bridge_vlan_trunk_interface (legacy) - single interface configuration
+
+      See role defaults/main.yml for examples.
+  when: _effective_interfaces | length == 0
+
+# =============================================================================
+# Display configuration summary
+# =============================================================================
+
+- name: Display bridge_vlan configuration
+  ansible.builtin.debug:
+    msg: |
+      ═══════════════════════════════════════════════════════════════════
+      RHDC BRIDGE + VLAN CONFIGURATION
+      ═══════════════════════════════════════════════════════════════════
+
+      Interfaces to configure: {{ _effective_interfaces | length }}
+      {% for iface in _effective_interfaces %}
+
+      ─────────────────────────────────────────────────────────────────────
+      Interface {{ loop.index }}: {{ iface.interface }}
+      ─────────────────────────────────────────────────────────────────────
+        Main Bridge: {{ iface.main_bridge.name }}
+          IPv4: {{ iface.main_bridge.ipv4_address }}
+          Gateway: {{ iface.main_bridge.ipv4_gateway | default('none', true) or 'none' }}
+          DNS: {{ iface.main_bridge.ipv4_dns | default([]) | join(', ') or 'none' }}
+      {% if iface.vlan_bridges | default([]) | length > 0 %}
+        VLAN Bridges:
+      {% for vlan in iface.vlan_bridges %}
+          - {{ vlan.name }} (VLAN {{ vlan.vlan_id }})
+      {% endfor %}
+      {% else %}
+        VLAN Bridges: none
+      {% endif %}
+      {% endfor %}
+
+      Cleanup Connections: {{ rhdc_bridge_vlan_cleanup_connections | join(', ') or 'none' }}
+
+      ═══════════════════════════════════════════════════════════════════
+
+# =============================================================================
+# Pre-flight validation
+# =============================================================================
+
+- name: Run pre-flight validation
+  ansible.builtin.include_tasks: validate.yml
+  when: not rhdc_bridge_vlan_skip_validation | bool
+
+# =============================================================================
+# Backup and cleanup
+# =============================================================================
+
+- name: Backup current network configuration
+  ansible.builtin.include_tasks: backup.yml
+  when: rhdc_bridge_vlan_create_backup | bool
+
+- name: Cleanup old connections
+  ansible.builtin.include_tasks: cleanup.yml
+  when: rhdc_bridge_vlan_cleanup_connections | length > 0
+
+# =============================================================================
+# Configure each interface
+# =============================================================================
+
+- name: Configure bridges for each interface
+  ansible.builtin.include_tasks: configure_interface.yml
+  loop: "{{ _effective_interfaces }}"
+  loop_control:
+    loop_var: interface_config
+    label: "{{ interface_config.interface }} → {{ interface_config.main_bridge.name }}"
+
+# =============================================================================
+# Completion summary
+# =============================================================================
+
+- name: Display completion message
+  ansible.builtin.debug:
+    msg: |
+      ═══════════════════════════════════════════════════════════════════
+      BRIDGE + VLAN CONFIGURATION COMPLETE
+      ═══════════════════════════════════════════════════════════════════
+
+      ⚠️  A REBOOT IS RECOMMENDED to ensure all connections activate properly.
+
+      {% if rhdc_bridge_vlan_create_backup | bool %}
+      RESTORE SCRIPT (if something goes wrong):
+        {{ rhdc_bridge_vlan_backup_dir }}/restore-network-latest.sh
+
+      Run via BMC/IPMI console to revert networking to original state.
+
+      {% endif %}
+      VERIFICATION COMMANDS (run after reboot):
+
+      # All bridges UP
+      ip link show type bridge | grep "state UP"
+
+      # Check each bridge has expected IP
+      {% for iface in _effective_interfaces %}
+      ip addr show {{ iface.main_bridge.name }} | grep "inet "
+      {% endfor %}
+
+      {% for iface in _effective_interfaces %}
+      {% if iface.vlan_bridges | default([]) | length > 0 %}
+      # VLAN interfaces on {{ iface.interface }}
+      bridge link show | grep "{{ iface.interface }}\\."
+      {% endif %}
+      {% endfor %}
+
+      # NetworkManager connections
+      nmcli connection show
+
+      ═══════════════════════════════════════════════════════════════════

@@ -1,0 +1,33 @@
+---
+# rhdc.network.bridge_vlan - Configure a single interface
+#
+# Called from main.yml for each interface in _effective_interfaces
+# Expects interface_config variable with:
+#   - interface: physical NIC name (e.g., "eno2")
+#   - main_bridge: bridge configuration dict
+#   - vlan_bridges: list of VLAN bridge configs (can be empty)
+
+- name: "{{ interface_config.interface }} | Display interface configuration"
+  ansible.builtin.debug:
+    msg: |
+      Configuring interface: {{ interface_config.interface }}
+        Main bridge: {{ interface_config.main_bridge.name }}
+        VLAN bridges: {{ interface_config.vlan_bridges | default([]) | length }}
+
+# Configure main bridge for this interface
+- name: "{{ interface_config.interface }} | Configure main bridge"
+  ansible.builtin.include_tasks: main_bridge.yml
+  vars:
+    _current_interface: "{{ interface_config.interface }}"
+    _current_main_bridge: "{{ interface_config.main_bridge }}"
+
+# Configure VLAN bridges for this interface (if any)
+- name: "{{ interface_config.interface }} | Configure VLAN bridges"
+  ansible.builtin.include_tasks: vlan_bridge.yml
+  loop: "{{ interface_config.vlan_bridges | default([]) }}"
+  loop_control:
+    loop_var: vlan_config
+    label: "{{ vlan_config.name }} (VLAN {{ vlan_config.vlan_id }})"
+  vars:
+    _current_interface: "{{ interface_config.interface }}"
+  when: interface_config.vlan_bridges | default([]) | length > 0

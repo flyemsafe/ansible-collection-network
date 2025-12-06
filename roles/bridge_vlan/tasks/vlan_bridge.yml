@@ -1,0 +1,92 @@
+---
+# rhdc.network.bridge_vlan - Create VLAN bridge with VLAN sub-interface slave
+#
+# Called from configure_interface.yml with:
+#   _current_interface: physical NIC name (e.g., "eno2")
+#   vlan_config: VLAN bridge configuration dict (name, vlan_id)
+#
+# Creates for each VLAN:
+#   1. Bridge (vlan10br0) - Layer 2 only, no IP
+#   2. VLAN sub-interface (eno2.10) - Enslaved to bridge directly
+#
+# CRITICAL: VLAN connections MUST have ipv4.method disabled
+# Without this, NetworkManager defaults to DHCP, VLAN interfaces get IPs,
+# bridge-slave activation fails, and bridges stay DOWN.
+
+- name: "{{ vlan_config.name }} | Check if VLAN bridge connection exists"
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: _connections
+  changed_when: false
+
+- name: "{{ vlan_config.name }} | Set VLAN connection facts"
+  ansible.builtin.set_fact:
+    _vlan_bridge_exists: "{{ vlan_config.name in _connections.stdout_lines }}"
+    _vlan_conn_name: "vlan{{ vlan_config.vlan_id }}-{{ _current_interface }}"
+    _vlan_ifname: "{{ _current_interface }}.{{ vlan_config.vlan_id }}"
+
+- name: "{{ vlan_config.name }} | Check if VLAN interface connection exists"
+  ansible.builtin.set_fact:
+    _vlan_conn_exists: "{{ _vlan_conn_name in _connections.stdout_lines }}"
+
+# Create VLAN bridge (Layer 2 only - no IP)
+- name: "{{ vlan_config.name }} | Create VLAN bridge"
+  ansible.builtin.command: >
+    nmcli connection add
+    type bridge
+    con-name {{ vlan_config.name }}
+    ifname {{ vlan_config.name }}
+    ipv4.method disabled
+    ipv6.method disabled
+    bridge.stp no
+    connection.autoconnect yes
+  when: not _vlan_bridge_exists
+  register: _vlan_bridge_created
+
+# Create VLAN sub-interface as bridge slave
+# CRITICAL: ipv4.method disabled prevents DHCP and IP assignment
+- name: "{{ vlan_config.name }} | Create VLAN sub-interface as bridge slave"
+  ansible.builtin.command: >
+    nmcli connection add
+    type vlan
+    con-name {{ _vlan_conn_name }}
+    ifname {{ _vlan_ifname }}
+    dev {{ _current_interface }}
+    id {{ vlan_config.vlan_id }}
+    ipv4.method disabled
+    ipv6.method disabled
+    connection.master {{ vlan_config.name }}
+    connection.slave-type bridge
+    connection.autoconnect yes
+  when: not _vlan_conn_exists
+  register: _vlan_conn_created
+
+# Activate connections
+- name: "{{ vlan_config.name }} | Bring up VLAN bridge"
+  ansible.builtin.command: nmcli connection up {{ vlan_config.name }}
+  when:
+    - rhdc_bridge_vlan_activate_connections | bool
+    - _vlan_bridge_created is changed
+  register: _vlan_bridge_up
+  failed_when: false
+  changed_when: _vlan_bridge_up.rc == 0
+
+- name: "{{ vlan_config.name }} | Bring up VLAN connection"
+  ansible.builtin.command: nmcli connection up {{ _vlan_conn_name }}
+  when:
+    - rhdc_bridge_vlan_activate_connections | bool
+    - _vlan_conn_created is changed
+  register: _vlan_conn_up
+  failed_when: false
+  changed_when: _vlan_conn_up.rc == 0
+
+- name: "{{ vlan_config.name }} | Display configuration"
+  ansible.builtin.debug:
+    msg: |
+      VLAN bridge configured:
+        Bridge: {{ vlan_config.name }}
+        Parent interface: {{ _current_interface }}
+        VLAN ID: {{ vlan_config.vlan_id }}
+        VLAN interface: {{ _vlan_ifname }}
+        VLAN connection: {{ _vlan_conn_name }}
+        Bridge status: {{ 'created' if _vlan_bridge_created is changed else 'exists' }}
+        VLAN status: {{ 'created' if _vlan_conn_created is changed else 'exists' }}

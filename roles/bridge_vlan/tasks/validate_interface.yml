@@ -1,0 +1,62 @@
+---
+# rhdc.network.bridge_vlan - Validate a single interface configuration
+#
+# Called from validate.yml for each interface
+# Expects _validate_iface variable with interface configuration
+
+- name: "{{ _validate_iface.interface }} | Validate required fields"
+  ansible.builtin.assert:
+    that:
+      - _validate_iface.interface | length > 0
+      - _validate_iface.main_bridge.name | length > 0
+      - _validate_iface.main_bridge.ipv4_address | length > 0
+    fail_msg: |
+      Missing required fields for interface configuration:
+        - interface: {{ _validate_iface.interface or 'NOT SET' }}
+        - main_bridge.name: {{ _validate_iface.main_bridge.name | default('NOT SET') }}
+        - main_bridge.ipv4_address: {{ _validate_iface.main_bridge.ipv4_address | default('NOT SET') }}
+
+      Note: ipv4_gateway is optional (can be empty for non-routed networks like storage)
+
+- name: "{{ _validate_iface.interface }} | Check if interface exists"
+  ansible.builtin.command: ip link show {{ _validate_iface.interface }}
+  register: _iface_check
+  changed_when: false
+  failed_when: false
+
+- name: "{{ _validate_iface.interface }} | Fail if interface does not exist"
+  ansible.builtin.fail:
+    msg: |
+      Interface '{{ _validate_iface.interface }}' does not exist.
+
+      Available interfaces:
+      {{ _available_interfaces.stdout }}
+
+      Please verify the correct interface name for this host.
+  when: _iface_check.rc != 0
+
+- name: "{{ _validate_iface.interface }} | Check if interface currently has IP"
+  ansible.builtin.shell: |
+    ip addr show {{ _validate_iface.interface }} | grep "inet " || true
+  register: _iface_ip_check
+  changed_when: false
+
+- name: "{{ _validate_iface.interface }} | Warn if interface has IP (will be moved to bridge)"
+  ansible.builtin.debug:
+    msg: |
+      ⚠️  WARNING: Interface {{ _validate_iface.interface }} currently has IP:
+      {{ _iface_ip_check.stdout }}
+
+      This IP will be removed when the interface becomes a bridge slave.
+      The IP should be configured on the main bridge instead.
+  when: _iface_ip_check.stdout | length > 0
+
+- name: "{{ _validate_iface.interface }} | Validate VLAN bridge names are unique"
+  ansible.builtin.assert:
+    that:
+      - _validate_iface.vlan_bridges | map(attribute='name') | list | unique | length ==
+        _validate_iface.vlan_bridges | length
+    fail_msg: |
+      Duplicate bridge names found in VLAN bridges for {{ _validate_iface.interface }}:
+      {{ _validate_iface.vlan_bridges | map(attribute='name') | list }}
+  when: _validate_iface.vlan_bridges | default([]) | length > 0

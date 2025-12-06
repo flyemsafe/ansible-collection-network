@@ -1,0 +1,115 @@
+---
+# rhdc.network.bridge_vlan - Create main bridge with IP and trunk slave
+#
+# Called from configure_interface.yml with:
+#   _current_interface: physical NIC name (e.g., "eno2")
+#   _current_main_bridge: main bridge configuration dict
+#
+# Creates:
+#   1. Main bridge connection with IPv4 address
+#   2. Physical interface as bridge slave
+
+- name: "{{ _current_main_bridge.name }} | Check if bridge connection exists"
+  ansible.builtin.command: nmcli -t -f NAME connection show
+  register: _connections
+  changed_when: false
+
+- name: "{{ _current_main_bridge.name }} | Set bridge connection facts"
+  ansible.builtin.set_fact:
+    _main_bridge_exists: "{{ _current_main_bridge.name in _connections.stdout_lines }}"
+    _trunk_slave_name: "bridge-slave-{{ _current_interface }}"
+
+- name: "{{ _current_main_bridge.name }} | Check if trunk slave connection exists"
+  ansible.builtin.set_fact:
+    _trunk_slave_exists: "{{ _trunk_slave_name in _connections.stdout_lines }}"
+
+# Determine if gateway should be configured
+- name: "{{ _current_main_bridge.name }} | Set gateway configuration"
+  ansible.builtin.set_fact:
+    _has_gateway: "{{ _current_main_bridge.ipv4_gateway | default('') | length > 0 }}"
+
+# Create main bridge connection
+- name: "{{ _current_main_bridge.name }} | Create bridge connection"
+  ansible.builtin.command: >
+    nmcli connection add
+    type bridge
+    con-name {{ _current_main_bridge.name }}
+    ifname {{ _current_main_bridge.name }}
+    ipv4.method manual
+    ipv4.addresses {{ _current_main_bridge.ipv4_address }}
+    {% if _has_gateway %}
+    ipv4.gateway {{ _current_main_bridge.ipv4_gateway }}
+    {% endif %}
+    {% if _current_main_bridge.ipv4_dns | default([]) | length > 0 %}
+    ipv4.dns "{{ _current_main_bridge.ipv4_dns | join(',') }}"
+    {% endif %}
+    ipv6.method disabled
+    bridge.stp {{ 'yes' if _current_main_bridge.stp | default(false) else 'no' }}
+    connection.autoconnect yes
+  when: not _main_bridge_exists
+  register: _bridge_created
+
+- name: "{{ _current_main_bridge.name }} | Update bridge connection if exists"
+  ansible.builtin.command: >
+    nmcli connection modify {{ _current_main_bridge.name }}
+    ipv4.method manual
+    ipv4.addresses {{ _current_main_bridge.ipv4_address }}
+    {% if _has_gateway %}
+    ipv4.gateway {{ _current_main_bridge.ipv4_gateway }}
+    {% else %}
+    ipv4.gateway ""
+    {% endif %}
+    {% if _current_main_bridge.ipv4_dns | default([]) | length > 0 %}
+    ipv4.dns "{{ _current_main_bridge.ipv4_dns | join(',') }}"
+    {% else %}
+    ipv4.dns ""
+    {% endif %}
+    ipv6.method disabled
+    bridge.stp {{ 'yes' if _current_main_bridge.stp | default(false) else 'no' }}
+    connection.autoconnect yes
+  when: _main_bridge_exists
+  register: _bridge_modified
+  changed_when: _bridge_modified.rc == 0
+
+# Create trunk interface as bridge slave
+- name: "{{ _current_main_bridge.name }} | Create interface bridge slave"
+  ansible.builtin.command: >
+    nmcli connection add
+    type ethernet
+    con-name {{ _trunk_slave_name }}
+    ifname {{ _current_interface }}
+    master {{ _current_main_bridge.name }}
+    slave-type bridge
+    connection.autoconnect yes
+  when: not _trunk_slave_exists
+  register: _slave_created
+
+# Activate connections
+- name: "{{ _current_main_bridge.name }} | Bring up bridge"
+  ansible.builtin.command: nmcli connection up {{ _current_main_bridge.name }}
+  when:
+    - rhdc_bridge_vlan_activate_connections | bool
+    - _bridge_created is changed or _bridge_modified is changed
+  register: _bridge_up
+  failed_when: false
+  changed_when: _bridge_up.rc == 0
+
+- name: "{{ _current_main_bridge.name }} | Bring up interface slave"
+  ansible.builtin.command: nmcli connection up {{ _trunk_slave_name }}
+  when:
+    - rhdc_bridge_vlan_activate_connections | bool
+    - _slave_created is changed
+  register: _slave_up
+  failed_when: false
+  changed_when: _slave_up.rc == 0
+
+- name: "{{ _current_main_bridge.name }} | Display configuration"
+  ansible.builtin.debug:
+    msg: |
+      Main bridge configured:
+        Bridge: {{ _current_main_bridge.name }}
+        Interface: {{ _current_interface }}
+        IPv4: {{ _current_main_bridge.ipv4_address }}
+        Gateway: {{ _current_main_bridge.ipv4_gateway | default('none (local network)') or 'none (local network)' }}
+        Slave connection: {{ _trunk_slave_name }}
+        Status: {{ 'created' if _bridge_created is changed else 'exists' }}

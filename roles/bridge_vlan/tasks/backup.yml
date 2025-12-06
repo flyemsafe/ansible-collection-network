@@ -1,0 +1,185 @@
+---
+# rhdc.network.bridge_vlan - Backup current network configuration
+#
+# Captures the current state of all affected interfaces and connections
+# before making any changes. Creates a restore script that can be
+# executed locally to revert networking to the original state.
+#
+# Uses _effective_interfaces from main.yml
+
+- name: Create backup directory
+  ansible.builtin.file:
+    path: "{{ rhdc_bridge_vlan_backup_dir }}"
+    state: directory
+    mode: '0755'
+  become: true
+
+- name: Get current timestamp for backup
+  ansible.builtin.set_fact:
+    _backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+
+- name: Set backup file paths
+  ansible.builtin.set_fact:
+    _backup_prefix: "{{ rhdc_bridge_vlan_backup_dir }}/network-backup-{{ _backup_timestamp }}"
+
+# Capture current NetworkManager connections
+- name: Get all NetworkManager connections
+  ansible.builtin.command: nmcli -t -f NAME,UUID,TYPE,DEVICE connection show
+  register: _nm_connections_raw
+  changed_when: false
+
+- name: Save NetworkManager connections list
+  ansible.builtin.copy:
+    content: |
+      # NetworkManager connections backup
+      # Captured: {{ ansible_date_time.iso8601 }}
+      # Host: {{ inventory_hostname }}
+      #
+      # Format: NAME:UUID:TYPE:DEVICE
+      {{ _nm_connections_raw.stdout }}
+    dest: "{{ _backup_prefix }}-connections.txt"
+    mode: '0644'
+  become: true
+
+# Capture connection details for each affected interface
+- name: Find connections using each interface
+  ansible.builtin.shell: |
+    nmcli -t -f NAME connection show | while read conn; do
+      dev=$(nmcli -t -f connection.interface-name connection show "$conn" 2>/dev/null | cut -d: -f2)
+      if [ "$dev" = "{{ item.interface }}" ]; then
+        echo "$conn"
+      fi
+    done
+  loop: "{{ _effective_interfaces }}"
+  loop_control:
+    label: "{{ item.interface }}"
+  register: _interface_connections
+  changed_when: false
+
+- name: Export interface connection profiles
+  ansible.builtin.shell: |
+    nmcli connection export "{{ item.1 }}" > "{{ _backup_prefix }}-conn-{{ item.1 | regex_replace('[^a-zA-Z0-9]', '_') }}.nmconnection"
+  loop: "{{ _interface_connections.results | subelements('stdout_lines', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.1 }}"
+  become: true
+  changed_when: false
+  failed_when: false
+
+# Capture IP configuration for each interface
+- name: Get current IP configuration for each interface
+  ansible.builtin.command: ip addr show {{ item.interface }}
+  loop: "{{ _effective_interfaces }}"
+  loop_control:
+    label: "{{ item.interface }}"
+  register: _interface_ip_configs
+  changed_when: false
+  failed_when: false
+
+- name: Save interface IP configurations
+  ansible.builtin.copy:
+    content: |
+      # IP configuration backup for {{ item.item.interface }}
+      # Captured: {{ ansible_date_time.iso8601 }}
+      {{ item.stdout | default('Interface not found') }}
+    dest: "{{ _backup_prefix }}-ip-{{ item.item.interface }}.txt"
+    mode: '0644'
+  loop: "{{ _interface_ip_configs.results }}"
+  loop_control:
+    label: "{{ item.item.interface }}"
+  become: true
+
+# Capture routing table
+- name: Get current routing table
+  ansible.builtin.command: ip route show
+  register: _routing_table
+  changed_when: false
+
+- name: Save routing table
+  ansible.builtin.copy:
+    content: |
+      # Routing table backup
+      # Captured: {{ ansible_date_time.iso8601 }}
+      {{ _routing_table.stdout }}
+    dest: "{{ _backup_prefix }}-routes.txt"
+    mode: '0644'
+  become: true
+
+# Capture DNS configuration
+- name: Get current DNS configuration
+  ansible.builtin.command: cat /etc/resolv.conf
+  register: _dns_config
+  changed_when: false
+
+- name: Save DNS configuration
+  ansible.builtin.copy:
+    content: "{{ _dns_config.stdout }}"
+    dest: "{{ _backup_prefix }}-resolv.conf"
+    mode: '0644'
+  become: true
+
+# Build list of all connections this role will create (for restore script)
+- name: Build list of connections this role will create
+  ansible.builtin.set_fact:
+    _connections_to_create: >-
+      {%- set conns = [] -%}
+      {%- for iface in _effective_interfaces -%}
+        {%- set _ = conns.append(iface.main_bridge.name) -%}
+        {%- set _ = conns.append('bridge-slave-' + iface.interface) -%}
+        {%- for vlan in iface.vlan_bridges | default([]) -%}
+          {%- set _ = conns.append(vlan.name) -%}
+          {%- set _ = conns.append('vlan' + (vlan.vlan_id | string) + '-' + iface.interface) -%}
+        {%- endfor -%}
+      {%- endfor -%}
+      {{ conns }}
+
+# Generate restore script
+- name: Generate network restore script
+  ansible.builtin.template:
+    src: restore-network.sh.j2
+    dest: "{{ _backup_prefix }}-restore.sh"
+    mode: '0755'
+  become: true
+
+# Create symlink to latest backup
+- name: Create symlink to latest restore script
+  ansible.builtin.file:
+    src: "{{ _backup_prefix }}-restore.sh"
+    dest: "{{ rhdc_bridge_vlan_backup_dir }}/restore-network-latest.sh"
+    state: link
+    force: true
+  become: true
+
+- name: Display backup information
+  ansible.builtin.debug:
+    msg: |
+      ═══════════════════════════════════════════════════════════════════
+      NETWORK BACKUP CREATED
+      ═══════════════════════════════════════════════════════════════════
+
+      Backup location: {{ rhdc_bridge_vlan_backup_dir }}
+      Timestamp: {{ _backup_timestamp }}
+
+      Interfaces backed up:
+      {% for iface in _effective_interfaces %}
+        - {{ iface.interface }} → {{ iface.main_bridge.name }}
+      {% endfor %}
+
+      Files created:
+        - {{ _backup_prefix }}-connections.txt (NM connections list)
+      {% for iface in _effective_interfaces %}
+        - {{ _backup_prefix }}-ip-{{ iface.interface }}.txt (IP config)
+      {% endfor %}
+        - {{ _backup_prefix }}-routes.txt (routing table)
+        - {{ _backup_prefix }}-resolv.conf (DNS config)
+        - {{ _backup_prefix }}-restore.sh (restore script)
+
+      TO RESTORE NETWORKING (if something goes wrong):
+
+        Via BMC/console:
+        {{ rhdc_bridge_vlan_backup_dir }}/restore-network-latest.sh
+
+        Or specific backup:
+        {{ _backup_prefix }}-restore.sh
+
+      ═══════════════════════════════════════════════════════════════════
